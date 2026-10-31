@@ -34,3 +34,9 @@ def maclari_getir():
         return {"maclar": [], "hata": f"Veri servisi hatası: {hata.code}"}
     except (URLError, TimeoutError, ValueError):
         return {"maclar": [], "hata": "Maç verileri şu anda alınamadı."}
+
+
+def gol_ortalamasi(goller):
+    if not goller:
+        return None
+    return round(sum(goller) / len(goller), 2)
