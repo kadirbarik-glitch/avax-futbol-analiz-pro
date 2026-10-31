@@ -40,3 +40,22 @@ def gol_ortalamasi(goller):
     if not goller:
         return None
     return round(sum(goller) / len(goller), 2)
+
+def gecmis_maclari_getir(takim_id):
+    anahtar = os.environ.get("FOOTBALL_DATA_API_KEY", "")
+    if not anahtar:
+        return []
+
+    adres = (
+        f"https://api.football-data.org/v4/teams/{takim_id}/matches"
+        "?status=FINISHED&limit=10"
+    )
+    istek = Request(adres, headers={"X-Auth-Token": anahtar})
+
+    try:
+        with urlopen(istek, timeout=15) as cevap:
+            veri = json.load(cevap)
+        return veri.get("matches", [])
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        return []
+    
