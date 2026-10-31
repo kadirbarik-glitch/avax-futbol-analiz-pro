@@ -1,3 +1,4 @@
+from mac_verileri import maclari_getir
 from flask import Flask, request, render_template_string
 from math import exp, factorial
 
