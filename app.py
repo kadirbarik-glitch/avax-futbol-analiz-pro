@@ -58,7 +58,9 @@ small {color:#cbd5e1}
 <button type="button"
 onclick="document.querySelector('[name=home]').value=this.dataset.ev;document.querySelector('[name=away]').value=this.dataset.dep;"
 data-ev="{{ mac.ev|e }}"
+data-ev-id="{{ mac.ev_id }}"
 data-dep="{{ mac.deplasman|e }}">
+data-dep-id="{{ mac.deplasman_id }}"
 {{ mac.ev }} - {{ mac.deplasman }}
 </button>
 </p>
