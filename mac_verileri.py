@@ -24,7 +24,9 @@ def maclari_getir():
             maclar.append({
                 "tarih": mac.get("utcDate", ""),
                 "ev": mac.get("homeTeam", {}).get("name", ""),
+                "ev_id": mac.get("homeTeam", {}).get("id"),
                 "deplasman": mac.get("awayTeam", {}).get("name", ""),
+                "deplasman_id": mac.get("awayTeam", {}).get("id"),
                 "lig": mac.get("competition", {}).get("name", "")
             })
 
