@@ -54,7 +54,19 @@ def recent_goals(team_id):
 
 def poisson(k, mean):
     return exp(-mean) * mean ** k / factorial(k)
+def skor_tahminleri(h, a):
+    skorlar = []
+    for ev in range(11):
+        for dep in range(11):
+            olasilik = poisson(ev, h) * poisson(dep, a)
+            skorlar.append((f"{ev}-{dep}", olasilik))
 
+    skorlar.sort(key=lambda x: x[1], reverse=True)
+
+    return [
+        (skor, round(olasilik * 100, 1))
+        for skor, olasilik in skorlar[:3]
+    ]
 def predictions(h, a):
     result = {'home': 0., 'draw': 0., 'away': 0., 'over': 0., 'btts': 0.}
     for i in range(21):
@@ -75,6 +87,15 @@ PAGE = '''<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name=
 <div class="card"><h2>Güncel maçlar</h2>{% if list_error %}<p class="error">{{ list_error }}</p>{% endif %}{% if not matches %}<p>Listelenecek maç bulunamadı.</p>{% endif %}{% for m in matches %}<button class="match" type="button" data-home="{{ m.home|e }}" data-away="{{ m.away|e }}" data-home-id="{{ m.home_id }}" data-away-id="{{ m.away_id }}" onclick="choose(this)">{{ m.home }} – {{ m.away }}<br><span class="muted">{{ m.league }} · UTC {{ m.date }}</span></button>{% endfor %}</div>
 <div class="card"><h2>Maç analizi</h2><form method="post" id="form"><label>Ev sahibi</label><input name="home" id="home" value="{{ home|e }}" required><label>Deplasman</label><input name="away" id="away" value="{{ away|e }}" required><input type="hidden" name="home_id" id="home_id" value="{{ home_id|e }}"><input type="hidden" name="away_id" id="away_id" value="{{ away_id|e }}"><label>Ev sahibi beklenen gol</label><input type="number" step="0.01" min="0" max="10" name="hg" id="hg" value="{{ hg|e }}" required><label>Deplasman beklenen gol</label><input type="number" step="0.01" min="0" max="10" name="ag" id="ag" value="{{ ag|e }}" required><button type="submit">MAÇI ANALİZ ET</button></form><p class="muted">Bir maç seçince takım adları doldurulur. Otomatik istatistik bulunursa gol ortalamaları da gelir; aksi halde elle girilebilir.</p>{% if error %}<p class="error">{{ error }}</p>{% endif %}</div>
 {% if results %}<div class="card"><h2>{{ home }} – {{ away }}</h2>{% for label, score in results %}<div class="result">{{ label }}: {{ score }}%</div>{% endfor %}<p class="muted">Poisson modeliyle hesaplanmış, kalibre edilmemiş tahminlerdir. Son maçlardaki atılan gol ortalaması gerçek beklenen gol (xG) değildir. Savunma gücü, sakatlık ve saha avantajı ayrıca modellenmez. Bahis garantisi yoktur.</p></div>{% endif %}
+{% if skorlar %}
+<div class="card">
+<h2>⚽ En Olası 3 Maç Skoru</h2>
+{% for skor, oran in skorlar %}
+<div class="result">{{ skor }} — %{{ oran }}</div>
+{% endfor %}
+<p class="muted">Poisson modeline dayalı tahmini skor olasılıklarıdır. Garanti değildir.</p>
+</div>
+{% endif %}
 </main><script>function choose(b){document.getElementById('home').value=b.dataset.home;document.getElementById('away').value=b.dataset.away;document.getElementById('home_id').value=b.dataset.homeId;document.getElementById('away_id').value=b.dataset.awayId;document.getElementById('hg').value='';document.getElementById('ag').value='';document.getElementById('form').submit()}</script></body></html>'''
 
 @app.route('/', methods=['GET', 'POST'])
@@ -82,6 +103,7 @@ def index():
     matches, list_error = fixtures()
     values = {k: '' for k in ('home','away','home_id','away_id','hg','ag')}
     results = None
+    skorlar = None
     error = None
     if request.method == 'POST':
         values = {k: request.form.get(k, '').strip() for k in values}
@@ -102,6 +124,7 @@ def index():
                 if not (0 <= h <= 10 and 0 <= a <= 10):
                     raise ValueError()
                 results = predictions(h, a)
+                skorlar = skor_tahminleri(h, a)
             except ValueError:
                 error = 'Gol ortalamaları 0 ile 10 arasında olmalıdır.'
-    return render_template_string(PAGE, matches=matches, list_error=list_error, results=results, error=error, **values)
+    return render_template_string(PAGE, matches=matches, list_error=list_error, results=results, skorlar=skorlar, error=error, **values)
