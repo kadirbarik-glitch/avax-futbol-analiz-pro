@@ -1,4 +1,4 @@
-from mac_verileri import maclari_getir
+from mac_verileri import maclari_getir, gecmis_maclari_getir, gol_ortalamasi
 from flask import Flask, request, render_template_string
 from math import exp, factorial
 
