@@ -1,0 +1,36 @@
+import os
+import json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
+def maclari_getir():
+    anahtar = os.environ.get("FOOTBALL_DATA_API_KEY", "")
+
+    if not anahtar:
+        return {"maclar": [], "hata": "Futbol veri anahtarı bulunamadı."}
+
+    adres = "https://api.football-data.org/v4/matches?status=SCHEDULED"
+    istek = Request(
+        adres,
+        headers={"X-Auth-Token": anahtar}
+    )
+
+    try:
+        with urlopen(istek, timeout=15) as cevap:
+            veri = json.load(cevap)
+
+        maclar = []
+        for mac in veri.get("matches", []):
+            maclar.append({
+                "tarih": mac.get("utcDate", ""),
+                "ev": mac.get("homeTeam", {}).get("name", ""),
+                "deplasman": mac.get("awayTeam", {}).get("name", ""),
+                "lig": mac.get("competition", {}).get("name", "")
+            })
+
+        return {"maclar": maclar, "hata": None}
+
+    except HTTPError as hata:
+        return {"maclar": [], "hata": f"Veri servisi hatası: {hata.code}"}
+    except (URLError, TimeoutError, ValueError):
+        return {"maclar": [], "hata": "Maç verileri şu anda alınamadı."}
