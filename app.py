@@ -52,6 +52,10 @@ small {color:#cbd5e1}
 <h1>⚽ AVAX FUTBOL ANALİZ PRO</h1>
 <p style="text-align:center">Futbol Analiz Merkezi</p>
 <div class="card">
+<h2>⚽ Güncel Maçlar</h2>
+{% for mac in maclar %}
+<p>{{ mac.ev }} - {{ mac.deplasman }}</p>
+{% endfor %}
 <form method="post">
 <label>Ev sahibi takım</label>
 <input name="home" value="{{ home }}" required>
@@ -143,5 +147,6 @@ def index():
         away=away,
         hg=hg,
         ag=ag,
-        result=result
+        result=result,
+     maclar=maclari_getir()["maclar"]
     )
