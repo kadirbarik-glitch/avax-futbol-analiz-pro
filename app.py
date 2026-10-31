@@ -125,7 +125,7 @@ PAGE = '''<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name=
 {% else %}<p class="muted">Yeterli devre skoru verisi bulunamadı; yarı tahminleri gösterilmiyor.</p>{% endif %}
 <p class="muted">Basit hücum-savunma ortalaması ve bağımsız Poisson varsayımı. Kalibre edilmemiş tahminlerdir, xG değildir ve bahis garantisi vermez.</p></div>{% endif %}
 {% if scores %}<div class="card"><h2>En olası 3 skor</h2>{% for name, pct in scores %}<div class="result">{{ name }}: %{{ pct }}</div>{% endfor %}</div>{% endif %}
-</main><script>function choose(b){document.getElementById('home').value=b.dataset.home;document.getElementById('away').value=b.dataset.away;document.getElementById('home_id').value=b.dataset.homeId;document.getElementById('away_id').value=b.dataset.awayId;document.getElementById('hg').value='';document.getElementById('ag').value='';document.getElementById('form').requestSubmit()}</script></body></html>'''
+</main><script>function choose(b){document.getElementById('home').value=b.dataset.home;document.getElementById('away').value=b.dataset.away;document.getElementById('home_id').value=b.dataset.homeId;document.getElementById('away_id').value=b.dataset.awayId;document.getElementById('hg').value='';document.getElementById('ag').value='';document.getElementById('form').submit()}</script></body></html>'''
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
