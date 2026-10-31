@@ -54,7 +54,14 @@ small {color:#cbd5e1}
 <div class="card">
 <h2>⚽ Güncel Maçlar</h2>
 {% for mac in maclar %}
-<p>{{ mac.ev }} - {{ mac.deplasman }}</p>
+<p>
+<button type="button"
+onclick="document.querySelector('[name=home]').value=this.dataset.ev;document.querySelector('[name=away]').value=this.dataset.dep;"
+data-ev="{{ mac.ev|e }}"
+data-dep="{{ mac.deplasman|e }}">
+{{ mac.ev }} - {{ mac.deplasman }}
+</button>
+</p>
 {% endfor %}
 <form method="post">
 <label>Ev sahibi takım</label>
