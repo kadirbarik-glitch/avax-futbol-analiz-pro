@@ -1,10 +1,5 @@
-from flask import Flask, render_template_string
-
-app = Flask(__name__)
-
-@app.route("/")
-def ana_sayfa():
-    return render_template_string(from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string
+from math import exp, factorial
 
 app = Flask(__name__)
 
@@ -17,24 +12,38 @@ HTML = """
 <title>AVAX FUTBOL ANALİZ PRO</title>
 <style>
 body {
- background:#101827; color:white;
+ background:#101827;
+ color:white;
  font-family:Arial,sans-serif;
- margin:0; padding:20px;
+ padding:18px;
 }
-main {max-width:650px;margin:auto}
-h1 {text-align:center;color:#54d9b1}
+main {max-width:600px;margin:auto}
+h1 {color:#4ade80;text-align:center}
 .card {
- background:#1d293b;padding:20px;
- border-radius:14px;margin:18px 0;
+ background:#1e293b;
+ padding:20px;
+ border-radius:14px;
+ margin:18px 0;
 }
 input,button {
- width:100%;box-sizing:border-box;
- padding:13px;margin:7px 0 15px;
- border-radius:8px;border:0;font-size:16px;
+ box-sizing:border-box;
+ width:100%;
+ padding:13px;
+ margin:8px 0 16px;
+ border:0;
+ border-radius:8px;
+ font-size:16px;
 }
-button {background:#22c55e;color:#07130b;font-weight:bold}
-.result {padding:12px;border-bottom:1px solid #405064}
-small {color:#bac5d5}
+button {
+ background:#22c55e;
+ color:#052e16;
+ font-weight:bold;
+}
+.result {
+ padding:12px;
+ border-bottom:1px solid #475569;
+}
+small {color:#cbd5e1}
 </style>
 </head>
 <body>
@@ -44,13 +53,13 @@ small {color:#bac5d5}
 <div class="card">
 <form method="post">
 <label>Ev sahibi takım</label>
-<input name="home" required value="{{ home }}">
+<input name="home" value="{{ home }}" required>
 <label>Deplasman takımı</label>
-<input name="away" required value="{{ away }}">
-<label>Ev sahibi son 5 maç gol ortalaması</label>
+<input name="away" value="{{ away }}" required>
+<label>Ev sahibi beklenen gol ortalaması</label>
 <input type="number" name="hg" min="0" max="10"
  step="0.1" value="{{ hg }}" required>
-<label>Deplasman son 5 maç gol ortalaması</label>
+<label>Deplasman beklenen gol ortalaması</label>
 <input type="number" name="ag" min="0" max="10"
  step="0.1" value="{{ ag }}" required>
 <button type="submit">MAÇI ANALİZ ET</button>
@@ -59,20 +68,53 @@ small {color:#bac5d5}
 {% if result %}
 <div class="card">
 <h2>{{ home }} - {{ away }}</h2>
-<div class="result">Ev sahibi eğilim puanı: {{ result[0] }}/100</div>
-<div class="result">Beraberlik eğilim puanı: {{ result[1] }}/100</div>
-<div class="result">Deplasman eğilim puanı: {{ result[2] }}/100</div>
-<div class="result">2,5 Üst eğilim puanı: {{ result[3] }}/100</div>
-<div class="result">2,5 Alt eğilim puanı: {{ result[4] }}/100</div>
-<div class="result">Karşılıklı gol eğilim puanı: {{ result[5] }}/100</div>
-<p><small>Bu puanlar basit bir prototip hesabıdır.
-Gerçek bahis olasılığı veya garanti tahmin değildir.</small></p>
+{% for label, value in result %}
+<div class="result">
+{{ label }}: {{ value }}%
+</div>
+{% endfor %}
+<p><small>
+Bu hesaplama Poisson gol modeline dayanır.
+Girilen gol beklentileri tahmini sonuçları belirler.
+Gerçek maç verileri otomatik alınmamaktadır.
+Bahis kazancı garanti değildir.
+</small></p>
 </div>
 {% endif %}
 </main>
 </body>
 </html>
 """
+
+def poisson(k, mean):
+    return exp(-mean) * mean ** k / factorial(k)
+
+def analiz(h, a):
+    home_win = draw = away_win = 0
+    over = btts = 0
+
+    for i in range(41):
+        for j in range(41):
+            p = poisson(i, h) * poisson(j, a)
+            if i > j:
+                home_win += p
+            elif i == j:
+                draw += p
+            else:
+                away_win += p
+            if i + j >= 3:
+                over += p
+            if i > 0 and j > 0:
+                btts += p
+
+    return [
+        ("Ev sahibi kazanır", round(home_win * 100, 1)),
+        ("Beraberlik", round(draw * 100, 1)),
+        ("Deplasman kazanır", round(away_win * 100, 1)),
+        ("2,5 Üst", round(over * 100, 1)),
+        ("2,5 Alt", round((1-over) * 100, 1)),
+        ("Karşılıklı gol VAR", round(btts * 100, 1))
+    ]
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -85,42 +127,20 @@ def index():
         away = request.form.get("away", "").strip()
         hg = request.form.get("hg", "")
         ag = request.form.get("ag", "")
+
         try:
-            h = max(0, min(10, float(hg)))
-            a = max(0, min(10, float(ag)))
-            total = h + a
-            home_score = round(100 * h / total) if total else 50
-            away_score = 100 - home_score
-            draw_score = round(100 * max(0, 1 - abs(h-a)/5))
-            over = round(100 * total / (total + 2.5))
-            under = 100 - over
-            btts = round(100 * min(h,a) / (min(h,a)+1))
-            result = [
-                home_score, draw_score, away_score,
-                over, under, btts
-            ]
+            h = float(hg)
+            a = float(ag)
+            if 0 <= h <= 10 and 0 <= a <= 10:
+                result = analiz(h, a)
         except ValueError:
             pass
 
     return render_template_string(
-        HTML, home=home, away=away,
-        hg=hg, ag=ag, result=result
+        HTML,
+        home=home,
+        away=away,
+        hg=hg,
+        ag=ag,
+        result=result
     )
-""
-    <!DOCTYPE html>
-    <html lang="tr">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>AVAX FUTBOL ANALİZ PRO</title>
-    </head>
-    <body style="background:#101827;color:white;
-                 font-family:Arial;text-align:center;
-                 padding:40px 15px;">
-        <h1>⚽ AVAX FUTBOL ANALİZ PRO</h1>
-        <h2>Futbol Analiz Merkezi</h2>
-        <p>Program başarıyla çalışıyor.</p>
-        <p>Maç analiz sistemi hazırlanıyor.</p>
-    </body>
-    </html>
-    """)
