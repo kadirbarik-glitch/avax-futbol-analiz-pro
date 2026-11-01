@@ -1,6 +1,7 @@
 name: AVAX V3 Test
 
 on:
+  workflow_dispatch:
   push:
     branches: [v3-gelistirme]
   pull_request:
