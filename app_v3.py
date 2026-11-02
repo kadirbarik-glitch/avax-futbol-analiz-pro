@@ -1,4 +1,5 @@
 import os
+import time
 import json
 from datetime import datetime, timezone
 from math import exp, factorial
@@ -8,19 +9,68 @@ from flask import Flask, request, render_template_string
 
 app = Flask(__name__)
 API_URL = 'https://api.football-data.org/v4'
+API_CACHE = {}
+CACHE_SECONDS = 300
+
 
 def api_get(path):
+    now = time.monotonic()
+    cached = API_CACHE.get(path)
+
+    if cached and now - cached['time'] < CACHE_SECONDS:
+        return cached['data'], None
+
+    blocked_until = API_CACHE.get('_blocked_until', 0)
+    if now < blocked_until:
+        if cached:
+            return cached['data'], None
+        return None, 'API istek sınırı doldu. Biraz bekleyin.'
+
     token = os.environ.get('FOOTBALL_DATA_API_KEY', '').strip()
     if not token:
         return None, 'Futbol veri anahtarı ayarlanmamış.'
+
     try:
-        req = Request(API_URL + path, headers={'X-Auth-Token': token})
+        req = Request(
+            API_URL + path,
+            headers={'X-Auth-Token': token}
+        )
         with urlopen(req, timeout=12) as response:
-            return json.load(response), None
+            data = json.load(response)
+
+        API_CACHE[path] = {
+            'data': data,
+            'time': time.monotonic()
+        }
+        return data, None
+
     except HTTPError as exc:
+        if exc.code == 429:
+            retry = exc.headers.get('Retry-After', '60')
+            try:
+                wait = max(60, min(int(retry), 3600))
+            except (ValueError, TypeError):
+                wait = 60
+
+            API_CACHE['_blocked_until'] = (
+                time.monotonic() + wait
+            )
+
+            if cached:
+                return cached['data'], None
+
+            return None, (
+                'API istek sınırına ulaşıldı. '
+                'Lütfen biraz bekleyin.'
+            )
+
         return None, f'Veri servisi HTTP {exc.code} hatası verdi.'
+
     except (URLError, TimeoutError, ValueError):
+        if cached:
+            return cached['data'], None
         return None, 'Futbol verileri şu anda alınamıyor.'
+
 
 def fixtures():
     data, err = api_get('/matches?status=SCHEDULED')
