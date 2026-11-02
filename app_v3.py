@@ -2,6 +2,7 @@ import os
 import time
 import json
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from math import exp, factorial
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -72,6 +73,23 @@ def api_get(path):
         return None, 'Futbol verileri şu anda alınamıyor.'
 
 
+def turkiye_saati(utc_date):
+    if not utc_date:
+        return 'Saat bilinmiyor'
+    try:
+        dt = datetime.fromisoformat(
+            utc_date.replace('Z', '+00:00')
+        )
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(
+            ZoneInfo('Europe/Istanbul')
+        ).strftime('%d.%m.%Y %H:%M')
+    except ValueError:
+        return 'Saat bilinmiyor'
+
+
+
 def fixtures():
     data, err = api_get('/matches?status=SCHEDULED')
     if err:
@@ -82,7 +100,7 @@ def fixtures():
         if home.get('id') and away.get('id'):
             matches.append({'home': home.get('name', ''), 'away': away.get('name', ''),
                             'home_id': home['id'], 'away_id': away['id'],
-                            'date': (item.get('utcDate') or '')[:16].replace('T', ' '),
+                            'date': turkiye_saati(item.get('utcDate')),
                             'league': (item.get('competition') or {}).get('name', '')})
     return matches, None
 
@@ -161,7 +179,7 @@ def model(h, a):
         return [(label, pct(value)) for label, value in output]
     return rows(full), rows(first, True), rows(second, True), [(s, pct(p)) for s, p in scores]
 
-PAGE = '''<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AVAX FUTBOL ANALİZ PRO V3</title><style>body{font:16px Arial;background:#101827;color:#f1f5f9;margin:0;padding:16px}main{max-width:720px;margin:auto}h1{color:#4ade80}.card{background:#1e293b;border-radius:14px;padding:18px;margin:15px 0}button,input{box-sizing:border-box;font:inherit;padding:12px;border-radius:8px;border:0}button{background:#22c55e;color:#052e16;cursor:pointer}input{width:100%;margin:7px 0 14px}label{display:block}.match{display:block;width:100%;text-align:left;margin:7px 0;background:#334155;color:white}.muted{color:#cbd5e1;font-size:13px}.result{padding:9px;border-bottom:1px solid #475569}.error{color:#fda4af}</style></head><body><main><h1>⚽ AVAX FUTBOL ANALİZ PRO V3</h1><p class="muted">Geliştirme sürümü — kalibre edilmemiş model</p><div class="card"><h2>Güncel maçlar</h2>{% if list_error %}<p class="error">{{ list_error }}</p>{% endif %}{% if not matches %}<p>Listelenecek maç bulunamadı.</p>{% endif %}{% for m in matches %}<button class="match" type="button" data-home="{{ m.home|e }}" data-away="{{ m.away|e }}" data-home-id="{{ m.home_id }}" data-away-id="{{ m.away_id }}" onclick="choose(this)">{{ m.home }} – {{ m.away }}<br><span class="muted">{{ m.league }} · UTC {{ m.date }}</span></button>{% endfor %}</div><div class="card"><h2>Maç analizi</h2><form method="post" id="form"><label>Ev sahibi</label><input name="home" id="home" value="{{ home|e }}" required><label>Deplasman</label><input name="away" id="away" value="{{ away|e }}" required><input type="hidden" name="home_id" id="home_id" value="{{ home_id|e }}"><input type="hidden" name="away_id" id="away_id" value="{{ away_id|e }}"><label>Ev sahibi beklenen gol</label><input type="number" step="0.01" min="0" max="10" name="hg" id="hg" value="{{ hg|e }}"><label>Deplasman beklenen gol</label><input type="number" step="0.01" min="0" max="10" name="ag" id="ag" value="{{ ag|e }}"><button type="submit">MAÇI ANALİZ ET</button></form><p class="muted">Maça dokununca takım adları ve gol ortalamaları otomatik hesaplanır. Gerekirse gol değerlerini elle girebilirsin.</p>{% if error %}<p class="error">{{ error }}</p>{% endif %}</div>{% if stats %}<div class="card"><h2>Takım formu</h2>{% for name, data in stats %}<h3>{{ name }}</h3>{% for label, item in [('Son 5',data.last5),('Son 10',data.last10),('İç saha',data.home),('Deplasman',data.away)] %}{% if item %}<div class="result">{{ label }} ({{ item.n }} maç): {{ item.wins }}G {{ item.draws }}B {{ item.losses }}M · Atılan {{ '%.2f'|format(item.scored) }} · Yenilen {{ '%.2f'|format(item.conceded) }}</div>{% endif %}{% endfor %}{% endfor %}</div>{% endif %}{% if results %}<div class="card"><h2>Maç sonucu ve gol seçenekleri</h2>{% for label, value in results %}<div class="result">{{ label }}: %{{ value }}</div>{% endfor %}</div><div class="card"><h2>İlk yarı tahminleri</h2>{% for label, value in first %}<div class="result">{{ label }}: %{{ value }}</div>{% endfor %}</div><div class="card"><h2>İkinci yarı tahminleri</h2>{% for label, value in second %}<div class="result">{{ label }}: %{{ value }}</div>{% endfor %}</div><div class="card"><h2>En olası 3 maç skoru</h2>{% for score, value in scores %}<div class="result">{{ score }} — %{{ value }}</div>{% endfor %}</div><p class="muted">Bağımsız Poisson tahminleri kalibre edilmemiştir. İlk yarı %45, ikinci yarı %55 gol payı varsayılmıştır; gerçek devre verisine dayanmaz. Yüzdeler güven veya kazanma garantisi değildir.</p>{% endif %}</main><script>function choose(b){document.getElementById('home').value=b.dataset.home;document.getElementById('away').value=b.dataset.away;document.getElementById('home_id').value=b.dataset.homeId;document.getElementById('away_id').value=b.dataset.awayId;document.getElementById('hg').value='';document.getElementById('ag').value='';document.getElementById('form').submit()}</script></body></html>'''
+PAGE = '''<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AVAX FUTBOL ANALİZ PRO V3</title><style>body{font:16px Arial;background:#101827;color:#f1f5f9;margin:0;padding:16px}main{max-width:720px;margin:auto}h1{color:#4ade80}.card{background:#1e293b;border-radius:14px;padding:18px;margin:15px 0}button,input{box-sizing:border-box;font:inherit;padding:12px;border-radius:8px;border:0}button{background:#22c55e;color:#052e16;cursor:pointer}input{width:100%;margin:7px 0 14px}label{display:block}.match{display:block;width:100%;text-align:left;margin:7px 0;background:#334155;color:white}.muted{color:#cbd5e1;font-size:13px}.result{padding:9px;border-bottom:1px solid #475569}.error{color:#fda4af}</style></head><body><main><h1>⚽ AVAX FUTBOL ANALİZ PRO V3</h1><p class="muted">Geliştirme sürümü — kalibre edilmemiş model</p><div class="card"><h2>Güncel maçlar</h2>{% if list_error %}<p class="error">{{ list_error }}</p>{% endif %}{% if not matches %}<p>Listelenecek maç bulunamadı.</p>{% endif %}{% for m in matches %}<button class="match" type="button" data-home="{{ m.home|e }}" data-away="{{ m.away|e }}" data-home-id="{{ m.home_id }}" data-away-id="{{ m.away_id }}" onclick="choose(this)">{{ m.home }} – {{ m.away }}<br><span class="muted">{{ m.league }} · Türkiye saati: {{ m.date }}</span></button>{% endfor %}</div><div class="card"><h2>Maç analizi</h2><form method="post" id="form"><label>Ev sahibi</label><input name="home" id="home" value="{{ home|e }}" required><label>Deplasman</label><input name="away" id="away" value="{{ away|e }}" required><input type="hidden" name="home_id" id="home_id" value="{{ home_id|e }}"><input type="hidden" name="away_id" id="away_id" value="{{ away_id|e }}"><label>Ev sahibi beklenen gol</label><input type="number" step="0.01" min="0" max="10" name="hg" id="hg" value="{{ hg|e }}"><label>Deplasman beklenen gol</label><input type="number" step="0.01" min="0" max="10" name="ag" id="ag" value="{{ ag|e }}"><button type="submit">MAÇI ANALİZ ET</button></form><p class="muted">Maça dokununca takım adları ve gol ortalamaları otomatik hesaplanır. Gerekirse gol değerlerini elle girebilirsin.</p>{% if error %}<p class="error">{{ error }}</p>{% endif %}</div>{% if stats %}<div class="card"><h2>Takım formu</h2>{% for name, data in stats %}<h3>{{ name }}</h3>{% for label, item in [('Son 5',data.last5),('Son 10',data.last10),('İç saha',data.home),('Deplasman',data.away)] %}{% if item %}<div class="result">{{ label }} ({{ item.n }} maç): {{ item.wins }}G {{ item.draws }}B {{ item.losses }}M · Atılan {{ '%.2f'|format(item.scored) }} · Yenilen {{ '%.2f'|format(item.conceded) }}</div>{% endif %}{% endfor %}{% endfor %}</div>{% endif %}{% if results %}<div class="card"><h2>Maç sonucu ve gol seçenekleri</h2>{% for label, value in results %}<div class="result">{{ label }}: %{{ value }}</div>{% endfor %}</div><div class="card"><h2>İlk yarı tahminleri</h2>{% for label, value in first %}<div class="result">{{ label }}: %{{ value }}</div>{% endfor %}</div><div class="card"><h2>İkinci yarı tahminleri</h2>{% for label, value in second %}<div class="result">{{ label }}: %{{ value }}</div>{% endfor %}</div><div class="card"><h2>En olası 3 maç skoru</h2>{% for score, value in scores %}<div class="result">{{ score }} — %{{ value }}</div>{% endfor %}</div><p class="muted">Bağımsız Poisson tahminleri kalibre edilmemiştir. İlk yarı %45, ikinci yarı %55 gol payı varsayılmıştır; gerçek devre verisine dayanmaz. Yüzdeler güven veya kazanma garantisi değildir.</p>{% endif %}</main><script>function choose(b){document.getElementById('home').value=b.dataset.home;document.getElementById('away').value=b.dataset.away;document.getElementById('home_id').value=b.dataset.homeId;document.getElementById('away_id').value=b.dataset.awayId;document.getElementById('hg').value='';document.getElementById('ag').value='';document.getElementById('form').submit()}</script></body></html>'''
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
