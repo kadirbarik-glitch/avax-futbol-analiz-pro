@@ -88,6 +88,19 @@ def turkiye_saati(utc_date):
     except ValueError:
         return 'Saat bilinmiyor'
 
+def mac_baslamadi(utc_date):
+    if not utc_date:
+        return False
+    try:
+        dt = datetime.fromisoformat(
+            utc_date.replace('Z', '+00:00')
+        )
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt > datetime.now(timezone.utc)
+    except ValueError:
+        return False
+
 
 
 def fixtures():
@@ -96,6 +109,10 @@ def fixtures():
         return [], err
     matches = []
     for item in data.get('matches', [])[:100]:
+            
+        if not mac_baslamadi(item.get('utcDate')):
+            continue
+
         home, away = item.get('homeTeam') or {}, item.get('awayTeam') or {}
         if home.get('id') and away.get('id'):
             matches.append({'home': home.get('name', ''), 'away': away.get('name', ''),
