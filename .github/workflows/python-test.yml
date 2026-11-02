@@ -32,7 +32,11 @@ jobs:
         run: |
           python -c "from app import app; assert app is not None"
           
+      
       - name: V3 gecmis mac performans testi
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           python backtest_v3.py
+
 
