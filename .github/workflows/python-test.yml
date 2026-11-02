@@ -26,7 +26,7 @@ jobs:
 
       - name: Python kodlarini kontrol et
         run: |
-          python -m py_compile app.py mac_verileri.py app_v3.py
+          python -m py_compile app.py mac_verileri.py app_v3.py backtest_v3.py
 
       - name: Flask uygulamasini kontrol et
         run: |
