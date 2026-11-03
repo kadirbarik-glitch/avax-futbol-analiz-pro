@@ -44,5 +44,12 @@ jobs:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           python backtest_v4.py
+          
+      - name: V5 bagimsiz sezon performans testi
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: |
+          python backtest_v5.py
+
 
 
