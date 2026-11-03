@@ -39,4 +39,10 @@ jobs:
         run: |
           python backtest_v3.py
 
+      - name: V4 bes lig performans testi
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: |
+          python backtest_v4.py
+
 
