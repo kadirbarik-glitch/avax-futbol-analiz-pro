@@ -32,8 +32,7 @@ jobs:
           python-version: '3.11'
 
       - name: Gereksinimleri kur
-        run: |
-          python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt
 
       - name: Veri onbellegini geri yukle
         uses: actions/cache/restore@v4
@@ -47,17 +46,37 @@ jobs:
       - name: Python kodlarini kontrol et
         run: |
           python -m py_compile app_v3.py app_v8.py
+          python -m py_compile v8_models.py
           python -m py_compile backtest_v6.py
           python -m py_compile backtest_v7.py
           python -m py_compile backtest_v73.py
           python -m py_compile backtest_v8.py
 
+      - name: V8 model secimlerini kontrol et
+        run: |
+          python - <<'PY'
+          from v8_models import MODEL_SELECTIONS, MARKETS, get_model, get_league_models
+
+          assert len(MODEL_SELECTIONS) == 5
+
+          for league in MODEL_SELECTIONS:
+              models = get_league_models(league)
+              assert set(models) == set(MARKETS)
+
+              for market in MARKETS:
+                  model = get_model(league, market)
+                  assert model.startswith(("V6_", "V7_"))
+
+          assert get_model("PL", "match_result") == "V6_0.75"
+          assert get_model("BL1", "over25") == "V6_1.00"
+
+          print("AVAX V8 model secimleri basarili")
+          PY
+
       - name: V8 uygulama acilis testi
         run: |
           python - <<'PY'
           from app_v8 import app
-
-          assert app is not None
 
           client = app.test_client()
           response = client.get("/v8/status")
@@ -70,7 +89,6 @@ jobs:
           assert data["v8_model_integrated"] is False
 
           print("AVAX V8 uygulama acilis testi basarili")
-          print(data)
           PY
 
       - name: V8 model secimi ve performans testi
