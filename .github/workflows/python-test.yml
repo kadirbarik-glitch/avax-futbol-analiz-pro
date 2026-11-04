@@ -1,3 +1,4 @@
+
 name: AVAX V8 Test
 
 on:
@@ -45,16 +46,37 @@ jobs:
 
       - name: Python kodlarini kontrol et
         run: |
-          python -m py_compile backtest_v8.py
-          python -m py_compile backtest_v73.py
-          python -m py_compile backtest_v7.py
+          python -m py_compile app_v3.py app_v8.py
           python -m py_compile backtest_v6.py
+          python -m py_compile backtest_v7.py
+          python -m py_compile backtest_v73.py
+          python -m py_compile backtest_v8.py
+
+      - name: V8 uygulama acilis testi
+        run: |
+          python - <<'PY'
+          from app_v8 import app
+
+          assert app is not None
+
+          client = app.test_client()
+          response = client.get("/v8/status")
+
+          assert response.status_code == 200
+          data = response.get_json()
+
+          assert data["version"] == "8.0-hazirlik"
+          assert data["status"] == "ready"
+          assert data["v8_model_integrated"] is False
+
+          print("AVAX V8 uygulama acilis testi basarili")
+          print(data)
+          PY
 
       - name: V8 model secimi ve performans testi
         env:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: |
-          python backtest_v8.py
+        run: python backtest_v8.py
 
       - name: Veri onbellegini kaydet
         if: always()
