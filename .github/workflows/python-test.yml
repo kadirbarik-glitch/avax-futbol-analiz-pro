@@ -68,6 +68,13 @@ jobs:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           python backtest_v71.py
+          
+      - name: V7.2 coklu sezon guvenilirlik testi
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: |
+          python backtest_v72.py
+
 
 
 
