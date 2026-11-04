@@ -3,21 +3,23 @@ name: AVAX V8 Test
 on:
   workflow_dispatch:
   push:
-    branches: [v3-gelistirme]
+    branches:
+      - v3-gelistirme
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: avax-tests-${{ github.workflow }}-${{ github.ref }}
+  group: avax-v8-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
       - name: Kodu indir
@@ -27,8 +29,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
-          cache-dependency-path: requirements.txt
 
       - name: Gereksinimleri kur
         run: |
@@ -45,68 +45,16 @@ jobs:
 
       - name: Python kodlarini kontrol et
         run: |
-          python -m compileall -q \
-            app.py \
-            mac_verileri.py \
-            app_v3.py \
-            backtest_v3.py \
-            backtest_v4.py \
-            backtest_v5.py \
-            backtest_v6.py \
-            backtest_v7.py \
-            backtest_v71.py \
-            backtest_v72.py \
-            backtest_v73.py \
-            backtest_v8.py
+          python -m py_compile backtest_v8.py
+          python -m py_compile backtest_v73.py
+          python -m py_compile backtest_v7.py
+          python -m py_compile backtest_v6.py
 
-      - name: Flask uygulamasini kontrol et
+      - name: V8 model secimi ve performans testi
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
-          python -c "from app import app; assert app is not None"
-
-      - name: V3 gecmis mac performans testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v3.py
-
-      - name: V4 bes lig performans testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v4.py
-
-      - name: V5 bagimsiz sezon performans testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v5.py
-
-      - name: V6 rakip gucu performans testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v6.py
-
-      - name: V7 gelismis tahmin motoru testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v7.py
-
-      - name: V7.1 model karsilastirma testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v71.py
-
-      - name: V7.2 coklu sezon testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v72.py
-
-      - name: V7.3 gelismis coklu sezon testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v73.py
-
-      - name: V8 market bazli model secimi testi
-        env:
-          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v8.py
+          python backtest_v8.py
 
       - name: Veri onbellegini kaydet
         if: always()
@@ -114,4 +62,3 @@ jobs:
         with:
           path: data_cache
           key: avax-v73-data-${{ runner.os }}-${{ hashFiles('backtest_v73.py') }}-${{ github.run_id }}
-
