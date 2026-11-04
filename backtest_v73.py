@@ -1,4 +1,4 @@
-"""AVAX V7.3: exploratory walk-forward V6/V7 comparison across 2022-2025.
+"""AVAX V7.3: exploratory walk-forward V6/V7 comparison across 2023-2025.
 Run: python backtest_v73.py [PL|PD|SA|BL1|FL1]
 Requires FOOTBALL_DATA_API_KEY for uncached seasons.
 Previous seasons select models; the following season evaluates unchanged settings.
@@ -12,7 +12,7 @@ from pathlib import Path
 from backtest_v6 import LEAGUES, MARKETS, fetch, valid, evaluate as v6_evaluate
 from backtest_v7 import CONFIGS, evaluate_v7
 
-SEASONS = ('2022', '2023', '2024', '2025')
+SEASONS = ('2023', '2024', '2025')
 V6_WEIGHTS = (0.0, 0.25, 0.5, 0.75, 1.0)
 GROUPS = (('match_result', ('home', 'draw', 'away')),
           ('over25', ('over25',)), ('btts', ('btts',)),
