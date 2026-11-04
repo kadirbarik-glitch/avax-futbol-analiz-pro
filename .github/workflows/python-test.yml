@@ -1,5 +1,5 @@
 
-name: AVAX V3 Test
+name: AVAX V8 Test
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Kodu indir
@@ -35,7 +35,7 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
 
-      - name: V7.3 veri onbellegini geri yukle
+      - name: Veri onbellegini geri yukle
         uses: actions/cache/restore@v4
         with:
           path: data_cache
@@ -46,7 +46,19 @@ jobs:
 
       - name: Python kodlarini kontrol et
         run: |
-          python -m py_compile app.py mac_verileri.py app_v3.py backtest_v3.py backtest_v4.py backtest_v5.py backtest_v6.py backtest_v7.py backtest_v71.py backtest_v72.py backtest_v73.py
+          python -m compileall -q \
+            app.py \
+            mac_verileri.py \
+            app_v3.py \
+            backtest_v3.py \
+            backtest_v4.py \
+            backtest_v5.py \
+            backtest_v6.py \
+            backtest_v7.py \
+            backtest_v71.py \
+            backtest_v72.py \
+            backtest_v73.py \
+            backtest_v8.py
 
       - name: Flask uygulamasini kontrol et
         run: |
@@ -77,12 +89,12 @@ jobs:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: python backtest_v7.py
 
-      - name: V7.1 dogrudan model karsilastirma testi
+      - name: V7.1 model karsilastirma testi
         env:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: python backtest_v71.py
 
-      - name: V7.2 coklu sezon guvenilirlik testi
+      - name: V7.2 coklu sezon testi
         env:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: python backtest_v72.py
@@ -92,7 +104,12 @@ jobs:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: python backtest_v73.py
 
-      - name: V7.3 veri onbellegini kaydet
+      - name: V8 market bazli model secimi testi
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: python backtest_v8.py
+
+      - name: Veri onbellegini kaydet
         if: always()
         uses: actions/cache/save@v4
         with:
