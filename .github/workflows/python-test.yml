@@ -62,6 +62,13 @@ jobs:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           python backtest_v7.py
+          
+      - name: V7.1 dogrudan model karsilastirma testi
+        env:
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: |
+          python backtest_v71.py
+
 
 
 
