@@ -1,4 +1,3 @@
-
 name: AVAX V8 Test
 
 on:
@@ -47,7 +46,8 @@ jobs:
         run: |
           python -m compileall -q \
             app_v3.py app_v8.py \
-            v8_models.py v8_live_engine.py \
+            v8_models.py v8_live_engine.py v8_data.py \
+            test_v8_data.py \
             backtest_v6.py backtest_v7.py \
             backtest_v73.py backtest_v8.py
 
@@ -71,9 +71,7 @@ jobs:
 
                   if model.startswith("V6_"):
                       weight = float(model[3:])
-                      assert weight in (
-                          0, 0.25, 0.5, 0.75, 1
-                      )
+                      assert weight in (0, 0.25, 0.5, 0.75, 1)
                   else:
                       assert model.startswith("V7_")
                       index = int(model[3:])
@@ -103,18 +101,14 @@ jobs:
         run: |
           python - <<'PY'
           from datetime import datetime, timedelta, timezone
-          from v8_live_engine import (
-              build_histories, predict
-          )
+          from v8_live_engine import build_histories, predict
 
           start = datetime(
               2025, 1, 1, tzinfo=timezone.utc
           )
-
           matches = []
           match_id = 1
 
-          # Yapay maclar: internet ve API kullanilmaz.
           for round_no in range(10):
               for i in range(6):
                   home = (i + round_no) % 6 + 1
@@ -152,7 +146,6 @@ jobs:
               "Mac siralamasi sonucu degistirdi"
           )
 
-          # Gelecekteki sonuc hesaplamayi etkilememeli.
           future = {
               **matches[0],
               "id": 9999,
@@ -160,10 +153,7 @@ jobs:
                   start + timedelta(days=20)
               ).isoformat(),
               "score": {
-                  "fullTime": {
-                      "home": 20,
-                      "away": 0
-                  }
+                  "fullTime": {"home": 20, "away": 0}
               },
           }
 
@@ -175,23 +165,21 @@ jobs:
               "Gelecek mac sonucu hesaplamaya sizdi"
           )
 
-          # Bes ligin model hesaplamalarini kontrol et.
           for league in ("PL", "PD", "SA", "BL1", "FL1"):
               result = predict(
                   league, 1, 7, cutoff, matches
               )
-
               probs = result["probabilities_percent"]
 
-              for value in probs.values():
-                  assert 0 <= value <= 100
-
-              total = (
-                  probs["home"]
-                  + probs["draw"]
-                  + probs["away"]
+              assert all(
+                  0 <= value <= 100
+                  for value in probs.values()
               )
-              assert abs(total - 100) < 0.1
+
+              assert abs(
+                  probs["home"] + probs["draw"]
+                  + probs["away"] - 100
+              ) < 0.1
 
               assert abs(
                   probs["over25"] + probs["under25"]
@@ -205,10 +193,12 @@ jobs:
 
               assert len(result["models"]) == 3
 
-              print(league, probs)
-
-          print("V8 canli motor temel testleri basarili")
+          print("V8 canli motor testleri basarili")
           PY
+
+      - name: V8 veri baglantisi cevrimdisi testi
+        run: |
+          python -m unittest -v test_v8_data.py
 
       - name: V8 model secimi ve performans testi
         env:
@@ -221,3 +211,4 @@ jobs:
         with:
           path: data_cache
           key: avax-v73-data-${{ runner.os }}-${{ hashFiles('backtest_v73.py') }}-${{ github.run_id }}
+
