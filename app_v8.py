@@ -1,7 +1,7 @@
 """AVAX FUTBOL ANALIZ PRO V8.2 - Web Panel.
 
 Six competitions, Turkish kickoff times,
-historical data freshness and model details.
+competition and team data freshness.
 """
 
 import os
@@ -82,8 +82,24 @@ a {color:#86efac}
  padding:12px;
  margin:10px 0;
 }
-.warning {
- color:#fbbf24;
+.warning {color:#fbbf24}
+.team-grid {
+ display:grid;
+ grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+ gap:12px;
+}
+.team-card {
+ background:#334155;
+ border-radius:12px;
+ padding:15px;
+}
+.team-card h3 {
+ margin-top:0;
+ color:#86efac;
+}
+.team-card p {
+ margin:9px 0;
+ font-size:14px;
 }
 </style>
 </head>
@@ -132,7 +148,7 @@ Bu lig icin model henuz dogrulanmadi.
 selected{% endif %}>
 {{ match.homeTeam.name }} -
 {{ match.awayTeam.name }}
-({{ match.turkey_time }} TSİ)
+({{ match.turkey_time }} TSI)
 </option>
 {% endfor %}
 </select>
@@ -147,7 +163,6 @@ V8.2 ANALIZ ET
 {% if list_error %}
 <p class="error">{{ list_error }}</p>
 {% endif %}
-
 {% if not matches %}
 <p class="muted">
 Bu lig icin planlanmis mac bulunamadi.
@@ -195,22 +210,18 @@ Gecmis mac sayisi:
 <strong>Veri kaynagi:</strong>
 {{ result.data_source }}
 </div>
-
 <div class="info">
 <strong>Yuklenen gecmis mac:</strong>
 {{ result.historical_matches_loaded }}
 </div>
-
 <div class="info">
 <strong>Son gecmis mac:</strong>
 {{ result.latest_match_tr }}
 </div>
-
 <div class="info">
 <strong>Son mac ile tahmin maci arasi:</strong>
 {{ result.days_since_latest }} gun
 </div>
-
 <div class="info">
 <strong>Veri durumu:</strong>
 {{ result.freshness_status }}
@@ -219,10 +230,50 @@ Gecmis mac sayisi:
 <p class="{% if result.freshness_status == 'STALE' %}warning{% else %}muted{% endif %}">
 {{ result.freshness_message }}
 </p>
+</div>
+
+<div class="card">
+<h2>Takim bazli veri kontrolu</h2>
+
+<div class="team-grid">
+{% for team in team_details %}
+<div class="team-card">
+<h3>{{ team.name }}</h3>
+
+<p>
+<strong>Gecmis mac:</strong>
+{{ team.matches }}
+</p>
+
+<p>
+<strong>Son mac:</strong>
+{{ team.latest_match_tr }}
+</p>
+
+<p>
+<strong>Veri yasi:</strong>
+{% if team.days_since_latest is not none %}
+{{ team.days_since_latest }} gun
+{% else %}
+Bilinmiyor
+{% endif %}
+</p>
+
+<p class="{% if team.freshness_status == 'STALE' %}warning{% endif %}">
+<strong>Durum:</strong>
+{{ team.freshness_status }}
+</p>
 
 <p class="muted">
-Bu bilgi API guncelleme zamanini degil,
-son tamamlanmis macin tarihini gosterir.
+{{ team.freshness_message }}
+</p>
+</div>
+{% endfor %}
+</div>
+
+<p class="muted">
+Takim verileri sadece secilen yarismanin
+mevcut sezonundaki maclari kapsar.
 </p>
 </div>
 {% endif %}
@@ -332,6 +383,8 @@ def avax_v8_panel():
 
     result = None
     error = None
+    team_details = []
+
     selected_match = request.form.get(
         "match_id", ""
     )
@@ -371,6 +424,30 @@ def avax_v8_panel():
                         if latest else "Bilinmiyor"
                     )
 
+                    for key, name in (
+                        (
+                            "home_team_freshness",
+                            match["homeTeam"]["name"],
+                        ),
+                        (
+                            "away_team_freshness",
+                            match["awayTeam"]["name"],
+                        ),
+                    ):
+                        info = result.get(key, {}).copy()
+                        latest_team = info.get(
+                            "latest_match_utc"
+                        )
+
+                        info["name"] = name
+                        info["latest_match_tr"] = (
+                            turkey_time(latest_team)
+                            if latest_team
+                            else "Bilinmiyor"
+                        )
+
+                        team_details.append(info)
+
                 except (
                     ValueError,
                     RuntimeError,
@@ -390,6 +467,7 @@ def avax_v8_panel():
         result=result,
         error=error,
         labels=LABELS,
+        team_details=team_details,
     )
 
 
