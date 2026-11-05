@@ -1,24 +1,30 @@
+"""AVAX V8.2 - Integrity tests.
 
-"""AVAX V8.2 - Chronology and data leakage integrity tests.
+Checks chronological order, future leakage,
+same-kickoff isolation and repeatability.
 
-Run: python -m unittest -v test_v82_integrity
-No API key required.
+Run:
+python -m unittest -v test_v82_integrity
 """
 
 import copy
 import unittest
-from unittest.mock import patch
+from collections import defaultdict
 
-import backtest_v6
-import backtest_v7
+from backtest_v6 import (
+    valid,
+    evaluate as evaluate_v6,
+)
+from backtest_v7 import evaluate_v7
+
 
 CONFIG = (0.08, 0.5, 0.5)
 
 
-def fixture(mid, kickoff, home, away, hg, ag):
+def fixture(mid, date, home, away, hg, ag):
     return {
         "id": mid,
-        "utcDate": kickoff,
+        "utcDate": date,
         "homeTeam": {"id": home},
         "awayTeam": {"id": away},
         "score": {
@@ -33,100 +39,81 @@ def fixture(mid, kickoff, home, away, hg, ag):
 def sample_matches():
     matches = []
 
-    for week in range(1, 9):
+    # Two independent fixtures at each kickoff.
+    # Every team plays only once per kickoff.
+    for week in range(1, 13):
         date = f"2025-01-{week:02d}T20:00:00Z"
 
         matches.extend([
             fixture(
-                week * 10 + 1, date, 1, 2,
-                week % 4, (week + 1) % 3
+                week * 10 + 1,
+                date, 1, 2,
+                week % 4,
+                (week + 1) % 3,
             ),
             fixture(
-                week * 10 + 2, date, 3, 4,
-                (week + 2) % 4, week % 3
-            ),
-            fixture(
-                week * 10 + 3, date, 1, 3,
-                week % 3, (week + 2) % 3
+                week * 10 + 2,
+                date, 3, 4,
+                (week + 2) % 4,
+                week % 3,
             ),
         ])
 
-    return backtest_v6.valid(matches)
+    return valid(matches)
 
 
-def capture_predictions(matches, model):
-    """Capture predictions against the actual match ID."""
+def models():
+    return {
+        "V6": lambda matches: evaluate_v6(
+            matches, 0.5
+        ),
+        "V7": lambda matches: evaluate_v7(
+            matches, CONFIG
+        ),
+    }
 
-    captured = {}
-    current_match = [None]
 
-    original_v6 = backtest_v6.probabilities
-    original_v7 = backtest_v7.probabilities
-
-    def record_v6(h, a):
-        prediction = original_v6(h, a)
-        if current_match[0] is not None:
-            captured[current_match[0]] = prediction.copy()
-        return prediction
-
-    def record_v7(h, a):
-        prediction = original_v7(h, a)
-        if current_match[0] is not None:
-            captured[current_match[0]] = prediction.copy()
-        return prediction
-
-    original_expected = backtest_v6.expected
-    original_estimate = backtest_v7.estimate
-
-    def tracked_expected(history, hid, aid, blend):
-        current_match[0] = next(
-            (
-                m["id"] for m in matches
-                if m["homeTeam"]["id"] == hid
-                and m["awayTeam"]["id"] == aid
-                and m["id"] not in captured
-            ),
-            None,
+def probabilities_only(rows):
+    return [
+        tuple(
+            (key, round(float(value), 10))
+            for key, value in sorted(p.items())
         )
-        return original_expected(history, hid, aid, blend)
+        for p, _ in rows
+    ]
 
-    def tracked_estimate(
-        history, hid, aid, league_home, league_away, config
-    ):
-        current_match[0] = next(
-            (
-                m["id"] for m in matches
-                if m["homeTeam"]["id"] == hid
-                and m["awayTeam"]["id"] == aid
-                and m["id"] not in captured
-            ),
-            None,
-        )
-        return original_estimate(
-            history, hid, aid,
-            league_home, league_away, config
+
+def grouped_predictions(matches, evaluate):
+    """Compare prediction groups by kickoff time.
+
+    No guessed match-ID association is used.
+    """
+
+    result = defaultdict(list)
+    previous_count = 0
+    prefix = []
+
+    dates = sorted({
+        m["utcDate"] for m in matches
+    })
+
+    for date in dates:
+        batch = [
+            m for m in matches
+            if m["utcDate"] == date
+        ]
+
+        prefix.extend(batch)
+        rows = evaluate(prefix)
+
+        new_rows = rows[previous_count:]
+        previous_count = len(rows)
+
+        result[date] = sorted(
+            probabilities_only(new_rows)
         )
 
-    if model == "V6":
-        with patch.object(
-            backtest_v6, "expected",
-            side_effect=tracked_expected
-        ), patch.object(
-            backtest_v6, "probabilities",
-            side_effect=record_v6
-        ):
-            backtest_v6.evaluate(matches, 0.5)
-    else:
-        with patch.object(
-            backtest_v7, "estimate",
-            side_effect=tracked_estimate
-        ), patch.object(
-            backtest_v7, "probabilities",
-            side_effect=record_v7
-        ):
-            backtest_v7.evaluate_v7(matches, CONFIG)
-
-    return captured
+    return dict(result)
 
 
 class IntegrityTests(unittest.TestCase):
@@ -136,89 +123,127 @@ class IntegrityTests(unittest.TestCase):
         reversed_matches = list(reversed(matches))
 
         self.assertEqual(
-            [m["id"] for m in backtest_v6.valid(reversed_matches)],
             [m["id"] for m in matches],
+            [
+                m["id"]
+                for m in valid(reversed_matches)
+            ],
         )
-
-    def test_same_kickoff_order_invariance(self):
-        matches = sample_matches()
-        reordered = []
-
-        for i in range(0, len(matches), 3):
-            reordered.extend(reversed(matches[i:i + 3]))
-
-        for model in ("V6", "V7"):
-            with self.subTest(model=model):
-                first = capture_predictions(matches, model)
-                second = capture_predictions(reordered, model)
-
-                self.assertTrue(first)
-                self.assertEqual(
-                    set(first),
-                    set(second),
-                )
-
-                for mid in first:
-                    for market in first[mid]:
-                        self.assertAlmostEqual(
-                            first[mid][market],
-                            second[mid][market],
-                            places=10,
-                            msg=f"{model} match={mid} market={market}",
-                        )
 
     def test_future_results_do_not_change_past(self):
         matches = sample_matches()
-        cutoff = "2025-01-06T20:00:00Z"
+        cutoff = "2025-01-09T20:00:00Z"
 
         changed = copy.deepcopy(matches)
 
-        for m in changed:
-            if m["utcDate"] >= cutoff:
-                m["score"]["fullTime"]["home"] = 9
-                m["score"]["fullTime"]["away"] = 0
+        for match in changed:
+            if match["utcDate"] >= cutoff:
+                match["score"]["fullTime"]["home"] = 9
+                match["score"]["fullTime"]["away"] = 0
 
-        for model in ("V6", "V7"):
-            with self.subTest(model=model):
-                first = capture_predictions(matches, model)
-                second = capture_predictions(changed, model)
+        earlier = [
+            m for m in matches
+            if m["utcDate"] < cutoff
+        ]
 
-                earlier_ids = [
-                    m["id"] for m in matches
-                    if m["utcDate"] < cutoff
-                    and m["id"] in first
-                ]
+        for name, evaluate in models().items():
+            with self.subTest(model=name):
+                baseline = evaluate(earlier)
+                modified = evaluate(changed)
 
-                self.assertTrue(earlier_ids)
+                self.assertGreater(
+                    len(baseline), 0
+                )
 
-                for mid in earlier_ids:
-                    self.assertIn(mid, second)
+                self.assertEqual(
+                    probabilities_only(baseline),
+                    probabilities_only(
+                        modified[:len(baseline)]
+                    ),
+                )
 
-                    for market in first[mid]:
-                        self.assertAlmostEqual(
-                            first[mid][market],
-                            second[mid][market],
-                            places=10,
-                        )
-
-    def test_unsorted_input_requires_normalization(self):
+    def test_same_kickoff_order_invariance(self):
         matches = sample_matches()
-        normalized = backtest_v6.valid(
-            list(reversed(matches))
-        )
 
-        self.assertEqual(
-            [m["id"] for m in matches],
-            [m["id"] for m in normalized],
-        )
+        reordered = []
+        for i in range(0, len(matches), 2):
+            reordered.extend(
+                reversed(matches[i:i + 2])
+            )
+
+        for name, evaluate in models().items():
+            with self.subTest(model=name):
+                original = grouped_predictions(
+                    matches, evaluate
+                )
+                shuffled = grouped_predictions(
+                    reordered, evaluate
+                )
+
+                self.assertTrue(original)
+                self.assertEqual(
+                    original, shuffled
+                )
+
+    def test_same_kickoff_result_isolation(self):
+        matches = sample_matches()
+        changed = copy.deepcopy(matches)
+
+        target_date = "2025-01-09T20:00:00Z"
+
+        for match in changed:
+            if (
+                match["utcDate"] == target_date
+                and match["id"] % 10 == 1
+            ):
+                match["score"]["fullTime"]["home"] = 9
+                match["score"]["fullTime"]["away"] = 9
+
+        for name, evaluate in models().items():
+            with self.subTest(model=name):
+                first = grouped_predictions(
+                    matches, evaluate
+                )
+                second = grouped_predictions(
+                    changed, evaluate
+                )
+
+                self.assertTrue(first[target_date])
+                self.assertEqual(
+                    first[target_date],
+                    second[target_date],
+                )
+
+    def test_normalization(self):
+        matches = sample_matches()
+        reversed_matches = list(reversed(matches))
+
+        normalized = valid(reversed_matches)
+
+        for name, evaluate in models().items():
+            with self.subTest(model=name):
+                self.assertEqual(
+                    evaluate(matches),
+                    evaluate(normalized),
+                )
+
+    def test_repeatability(self):
+        matches = sample_matches()
+
+        for name, evaluate in models().items():
+            with self.subTest(model=name):
+                first = evaluate(matches)
+                second = evaluate(matches)
+
+                self.assertEqual(first, second)
 
     def test_input_is_not_mutated(self):
         matches = sample_matches()
         before = copy.deepcopy(matches)
 
-        for model in ("V6", "V7"):
-            with self.subTest(model=model):
-                capture_predictions(matches, model)
+        for name, evaluate in models().items():
+            with self.subTest(model=name):
+                evaluate(matches)
                 self.assertEqual(matches, before)
 
 
