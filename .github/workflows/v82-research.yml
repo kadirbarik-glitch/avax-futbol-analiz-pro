@@ -29,11 +29,17 @@ jobs:
           python -m py_compile backtest_v82_models.py
           python -m py_compile backtest_v6.py
           python -m py_compile backtest_v7.py
+          python -m py_compile v8_models.py
+          python -m py_compile v8_live_engine.py
           python -m py_compile test_v82_integrity.py
           python -m py_compile test_v82_real_data.py
+          python -m py_compile test_v82_live.py
 
-      - name: V8.2 veri sizintisi ve mac siralamasi testleri
+      - name: V8.2 veri sizintisi ve siralama testleri
         run: python -m unittest -v test_v82_integrity
+
+      - name: V8.2 canli motor testleri
+        run: python -m unittest -v test_v82_live
 
       - name: Gecmis verileri geri yukle
         uses: actions/cache/restore@v4
