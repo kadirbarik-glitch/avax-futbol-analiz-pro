@@ -30,6 +30,7 @@ jobs:
           python -m py_compile backtest_v6.py
           python -m py_compile backtest_v7.py
           python -m py_compile test_v82_integrity.py
+          python -m py_compile test_v82_real_data.py
 
       - name: V8.2 veri sizintisi ve mac siralamasi testleri
         run: python -m unittest -v test_v82_integrity
@@ -47,6 +48,9 @@ jobs:
         env:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: python backtest_v82.py
+
+      - name: V8.2 gercek veri guvenilirlik testi
+        run: python test_v82_real_data.py
 
       - name: V8.2 model karsilastirmasi
         run: python backtest_v82_models.py
