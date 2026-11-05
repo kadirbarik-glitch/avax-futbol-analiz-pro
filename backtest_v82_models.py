@@ -19,7 +19,7 @@ from backtest_v6 import (
 )
 from backtest_v7 import (
     CONFIGS,
-    evaluate as evaluate_v7,
+evaluate_v7,
 )
 
 LEAGUE = "CL"
