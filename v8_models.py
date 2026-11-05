@@ -1,9 +1,12 @@
+"""AVAX FUTBOL ANALIZ PRO V8.2
+League and market-specific model selections.
 
-"""AVAX FUTBOL ANALIZ PRO V8
-Lig ve bahis turune gore model secimleri.
+Champions League:
+2023 model selection
+2024 validation
+2025 historical evaluation
 
-Secimler 2023 sezonu testlerinden alinmistir.
-Canli tahmin motoru bu dosyada bulunmaz.
+Experimental models. No guaranteed accuracy.
 """
 
 MODEL_SELECTIONS = {
@@ -32,13 +35,17 @@ MODEL_SELECTIONS = {
         "over25": "V7_02",
         "btts": "V7_02",
     },
+    "CL": {
+        "match_result": "V7_15",
+        "over25": "V7_03",
+        "btts": "V7_17",
+    },
 }
 
 MARKETS = ("match_result", "over25", "btts")
 
 
 def get_model(league, market):
-    """Secilen model adini dondurur."""
     league = str(league).upper()
 
     if league not in MODEL_SELECTIONS:
@@ -55,7 +62,6 @@ def get_model(league, market):
 
 
 def get_league_models(league):
-    """Bir lig icin tum model secimlerini dondurur."""
     league = str(league).upper()
 
     if league not in MODEL_SELECTIONS:
