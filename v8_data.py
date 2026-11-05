@@ -1,405 +1,327 @@
-"""AVAX FUTBOL ANALIZ PRO V8.3 - Data Layer.
+"""AVAX FUTBOL ANALIZ PRO V8.3 - Web Panel.
 
-Historical competition and team freshness.
-Team history sufficiency and market-level warnings.
-Only finished pre-kickoff matches are used.
-
-Market quality indicators are heuristic, not calibrated
-prediction confidence or independently validated accuracy.
+Six competitions, Turkish kickoff times,
+competition/team freshness, sufficiency and market quality.
 """
 
-from datetime import datetime, timezone
+import os
+from datetime import timedelta, timezone
 
-from app_v3 import api_get
-from backtest_v6 import valid
-from v8_live_engine import predict, parse_date
+from flask import request, render_template_string
+
+from app_v3 import app, api_get
+from v8_data import analyze_match
+from v8_live_engine import parse_date
 from v8_models import MODEL_SELECTIONS
 
+V8_VERSION = "8.3-beta"
+TR_TIMEZONE = timezone(timedelta(hours=3))
 
-QUALITY_ORDER = {
-    "INSUFFICIENT": 0,
-    "LOW": 1,
-    "MODERATE": 2,
-    "ADEQUATE": 3,
+DEFAULT_LEAGUES = {
+    "PL": "Premier League",
+    "PD": "La Liga",
+    "SA": "Serie A",
+    "BL1": "Bundesliga",
+    "FL1": "Ligue 1",
+    "CL": "UEFA Champions League",
 }
 
-FRESHNESS_ORDER = {
-    "NO_DATA": 0,
-    "STALE": 1,
-    "AGING": 2,
-    "FRESH": 3,
+LABELS = [
+    ("Ev sahibi kazanir", "home"),
+    ("Beraberlik", "draw"),
+    ("Deplasman kazanir", "away"),
+    ("2.5 Ust", "over25"),
+    ("2.5 Alt", "under25"),
+    ("KG Var", "btts"),
+    ("KG Yok", "no_btts"),
+]
+
+SUFFICIENCY_LABELS = {
+    "INSUFFICIENT": "Yetersiz veri",
+    "LOW": "Az veri",
+    "MODERATE": "Orta duzey veri",
+    "ADEQUATE": "Daha kapsamli veri",
 }
 
-MARKET_NAMES = {
-    "match_result": "Mac sonucu",
-    "over_under": "2.5 Alt/Ust",
-    "btts": "KG Var/Yok",
-}
+PAGE_V8 = """
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AVAX FUTBOL ANALIZ PRO V8.3</title>
+<style>
+body {margin:0;padding:16px;background:#0f172a;color:#f8fafc;font:16px Arial,sans-serif}
+main {max-width:760px;margin:auto}
+h1 {color:#4ade80;font-size:27px}
+.card {background:#1e293b;border-radius:14px;padding:18px;margin:14px 0}
+button,select {width:100%;padding:13px;margin:8px 0;border:0;border-radius:9px;font-size:16px}
+button {background:#22c55e;color:#052e16;font-weight:bold;cursor:pointer}
+button:disabled {opacity:.45;cursor:not-allowed}
+select {background:#334155;color:white}
+.result {display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #475569}
+.error {color:#fda4af}
+.muted {color:#cbd5e1;font-size:13px}
+a {color:#86efac}
+.info {background:#334155;border-radius:9px;padding:12px;margin:10px 0}
+.warning {color:#fbbf24}
+.team-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.team-card {background:#334155;border-radius:12px;padding:15px}
+.team-card h3 {margin-top:0;color:#86efac}
+.team-card p {margin:9px 0;font-size:14px}
+.quality {border:1px solid #fbbf24;border-radius:10px;padding:14px;margin:14px 0;color:#fde68a}
+.market-card {background:#334155;border-radius:12px;padding:15px;margin:12px 0;border-left:4px solid #fbbf24}
+.market-card h3 {margin:0 0 12px;color:#86efac}
+.market-card p {margin:8px 0;font-size:14px}
+.market-card.low {border-left-color:#fb923c}
+.market-card.insufficient {border-left-color:#f87171}
+.market-card.adequate {border-left-color:#4ade80}
+.market-card.moderate {border-left-color:#facc15}
+</style>
+</head>
+<body>
+<main>
+<h1>AVAX FUTBOL ANALIZ PRO V8.3</h1>
+<p class="muted">Deneysel futbol tahminleri. Garanti veya bahis tavsiyesi degildir.</p>
+<div class="card">
+<h2>Gunluk mac analizi</h2>
+<form method="get" action="/v8">
+<label for="league">Lig sec</label>
+<select id="league" name="league" onchange="this.form.submit()">
+{% for code, name in leagues.items() %}
+<option value="{{ code }}" {% if code == selected_league %}selected{% endif %}>
+{{ name }} {% if code in supported %}(V8.3){% endif %}
+</option>
+{% endfor %}
+</select>
+<noscript><button type="submit">Maclari getir</button></noscript>
+</form>
+{% if selected_league not in supported %}
+<p class="muted">Bu lig icin model henuz dogrulanmadi.</p>
+{% endif %}
+<form method="post" action="/v8">
+<input type="hidden" name="league" value="{{ selected_league }}">
+<label for="match_id">Mac sec</label>
+<select id="match_id" name="match_id">
+{% for match in matches %}
+<option value="{{ match.id }}" {% if match.id|string == selected_match|string %}selected{% endif %}>
+{{ match.homeTeam.name }} - {{ match.awayTeam.name }} ({{ match.turkey_time }} TSI)
+</option>
+{% endfor %}
+</select>
+<button type="submit" {% if not matches or selected_league not in supported %}disabled{% endif %}>
+V8.3 ANALIZ ET
+</button>
+</form>
+{% if list_error %}<p class="error">{{ list_error }}</p>{% endif %}
+{% if not matches %}<p class="muted">Bu lig icin planlanmis mac bulunamadi.</p>{% endif %}
+</div>
+
+{% if error %}<div class="card"><p class="error">{{ error }}</p></div>{% endif %}
+{% if result %}
+<div class="card">
+<h2>V8.3 tahmin sonuclari</h2>
+{% for label, key in labels %}
+<div class="result"><span>{{ label }}</span><strong>%{{ result.probabilities_percent[key] }}</strong></div>
+{% endfor %}
+<div class="quality">
+<strong>Veri yeterliligi uyarisi</strong>
+<p>{{ result.data_quality_warning }}</p>
+</div>
+</div>
+
+<div class="card">
+<h2>Tahmin bazli veri kontrolu</h2>
+<p class="muted">Bu gostergeler veri miktari ve guncelligine dayanir. Tahminin gercek isabet olasiligini veya kalibre edilmis guven puanini gostermez.</p>
+{% for key, market in market_quality.items() %}
+<div class="market-card {{ market.level|lower }}">
+<h3>{{ market.name }}</h3>
+<p><strong>Veri yeterliligi:</strong> {{ sufficiency_labels.get(market.level, market.level) }} ({{ market.level }})</p>
+<p><strong>Veri guncelligi:</strong> {{ market.freshness }}</p>
+<p><strong>Takim gecmisleri:</strong> Ev {{ market.home_matches }} mac / Deplasman {{ market.away_matches }} mac</p>
+<p class="warning">{{ market.message }}</p>
+<p class="muted">Pazar bazli bagimsiz dogrulama: {% if market.independently_validated %}Mevcut{% else %}Henuz yapilmadi{% endif %}</p>
+</div>
+{% endfor %}
+<p class="muted">Uc pazar ayni takim gecmisi girdilerini kullandigindan kalite seviyeleri ayni olabilir. Pazarlarin tahmin performansini ayri ayri olcmek icin backtest gerekir.</p>
+</div>
+
+<div class="card">
+<h2>Kullanilan modeller</h2>
+{% for market, info in result.models.items() %}
+<div class="result"><span>{{ market }}</span><strong>{{ info.model }}</strong></div>
+{% endfor %}
+<p class="muted">Gecmis mac sayisi: {{ result.matches_in_history }}</p>
+</div>
+
+<div class="card">
+<h2>Veri guncelligi</h2>
+<div class="info"><strong>Veri kaynagi:</strong> {{ result.data_source }}</div>
+<div class="info"><strong>Yuklenen gecmis mac:</strong> {{ result.historical_matches_loaded }}</div>
+<div class="info"><strong>Son gecmis mac:</strong> {{ result.latest_match_tr }}</div>
+<div class="info"><strong>Son mac ile tahmin maci arasi:</strong> {{ result.days_since_latest }} gun</div>
+<div class="info"><strong>Veri durumu:</strong> {{ result.freshness_status }}</div>
+<p class="{% if result.freshness_status == 'STALE' %}warning{% else %}muted{% endif %}">{{ result.freshness_message }}</p>
+</div>
+
+<div class="card">
+<h2>Takim bazli veri kontrolu</h2>
+<div class="team-grid">
+{% for team in team_details %}
+<div class="team-card">
+<h3>{{ team.name }}</h3>
+<p><strong>Gecmis mac:</strong> {{ team.matches }}</p>
+<p><strong>Son mac:</strong> {{ team.latest_match_tr }}</p>
+<p><strong>Veri yasi:</strong> {% if team.days_since_latest is not none %}{{ team.days_since_latest }} gun{% else %}Bilinmiyor{% endif %}</p>
+<p><strong>Veri durumu:</strong> {{ team.freshness_status }}</p>
+<p class="{% if team.sufficiency_level in ['LOW', 'INSUFFICIENT'] %}warning{% endif %}"><strong>Veri yeterliligi:</strong> {{ team.sufficiency_label }}</p>
+<p class="muted">{{ team.sufficiency_message }}</p>
+</div>
+{% endfor %}
+</div>
+<p class="muted">Takim verileri sadece secilen yarismanin mevcut sezonundaki maclari kapsar. Veri yeterliligi esikleri uyarilardir; kalibre edilmis guven puanlari degildir.</p>
+</div>
+{% endif %}
+<div class="card">
+<p class="muted">V8.3 olasiliklari deneysel sonuclardir. Skor, ilk yari ve ikinci yari tahminleri mevcut V3 ekraninda bulunur.</p>
+<a href="/">V3 analiz ekranina don</a>
+</div>
+</main>
+</body>
+</html>
+"""
 
 
-def league_history(league, kickoff):
-    league = str(league).upper()
-
-    if league not in MODEL_SELECTIONS:
-        raise ValueError("Desteklenmeyen lig")
-
-    cutoff = parse_date(kickoff)
-
-    season = (
-        cutoff.year
-        if cutoff.month >= 7
-        else cutoff.year - 1
-    )
-
-    path = (
-        f"/competitions/{league}/matches"
-        f"?season={season}&status=FINISHED"
-    )
-
-    data, error = api_get(path)
-
-    if error:
-        raise RuntimeError(error)
-
-    if not isinstance(data, dict):
-        raise RuntimeError("Gecersiz API yaniti")
-
-    matches = data.get("matches")
-
-    if not isinstance(matches, list):
-        raise RuntimeError("Mac listesi bulunamadi")
-
-    history = [
-        match
-        for match in valid(matches)
-        if parse_date(match["utcDate"]) < cutoff
-        and match.get("status") == "FINISHED"
-    ]
-
-    return history
+def turkey_time(value):
+    dt = parse_date(value)
+    return dt.astimezone(TR_TIMEZONE).strftime("%d.%m.%Y %H:%M")
 
 
-def freshness_status(days):
-    if days is None:
-        return (
-            "NO_DATA",
-            "Gecmis mac verisi bulunamadi.",
-        )
+def get_leagues():
+    data, error = api_get("/competitions")
+    leagues = DEFAULT_LEAGUES.copy()
 
-    if days <= 14:
-        return (
-            "FRESH",
-            "Gecmis veriler yakin tarihli.",
-        )
+    if error or not isinstance(data, dict):
+        return leagues
 
-    if days <= 35:
-        return (
-            "AGING",
-            "Gecmis veriler bir miktar eski.",
-        )
+    for item in data.get("competitions", []):
+        if not isinstance(item, dict):
+            continue
+        code = item.get("code")
+        name = item.get("name")
+        if code and name:
+            leagues[code] = name
 
-    return (
-        "STALE",
-        "Gecmis veriler eski olabilir.",
-    )
+    return leagues
 
 
-def freshness_info(history, kickoff):
-    if not history:
-        return {
-            "latest_match_utc": None,
-            "days_since_latest": None,
-            "freshness_status": "NO_DATA",
-            "freshness_message": (
-                "Gecmis mac verisi bulunamadi."
-            ),
-        }
-
-    cutoff = parse_date(kickoff)
-
-    latest = max(
-        parse_date(m["utcDate"])
-        for m in history
-    )
-
-    days = (
-        cutoff - latest
-    ).total_seconds() / 86400
-
-    if days < 0:
-        raise ValueError(
-            "Gelecek mac verisi tespit edildi"
-        )
-
-    status, message = freshness_status(days)
-
+@app.get("/v8/status")
+def avax_v8_status():
     return {
-        "latest_match_utc": latest.isoformat(),
-        "days_since_latest": round(days, 1),
-        "freshness_status": status,
-        "freshness_message": message,
+        "application": "AVAX FUTBOL ANALIZ PRO",
+        "version": V8_VERSION,
+        "status": "beta",
+        "supported_leagues": list(MODEL_SELECTIONS),
+        "live_odds_included": False,
     }
 
 
-def history_sufficiency(count):
-    """Heuristic warning, not calibrated confidence."""
+@app.route("/v8", methods=["GET", "POST"])
+def avax_v8_panel():
+    leagues = get_leagues()
+    league = str(request.values.get("league", "PL")).upper()
+    if league not in leagues:
+        league = "PL"
 
-    if count < 3:
-        return {
-            "level": "INSUFFICIENT",
-            "message": (
-                "Tahmin icin yeterli takim "
-                "gecmisi bulunmuyor."
-            ),
-        }
+    data, list_error = api_get(
+        f"/competitions/{league}/matches?status=SCHEDULED"
+    )
+    matches = []
 
-    if count < 5:
-        return {
-            "level": "LOW",
-            "message": (
-                "Takimin gecmis mac sayisi az. "
-                "Tahmin belirsizligi yuksek olabilir."
-            ),
-        }
+    if isinstance(data, dict):
+        for match in data.get("matches", []):
+            if not isinstance(match, dict):
+                continue
+            home = match.get("homeTeam") or {}
+            away = match.get("awayTeam") or {}
+            if (
+                match.get("id") is not None
+                and match.get("utcDate")
+                and home.get("id") is not None
+                and away.get("id") is not None
+            ):
+                match = match.copy()
+                try:
+                    match["turkey_time"] = turkey_time(match["utcDate"])
+                except (ValueError, TypeError):
+                    continue
+                matches.append(match)
 
-    if count < 10:
-        return {
-            "level": "MODERATE",
-            "message": (
-                "Orta duzeyde takim gecmisi var. "
-                "Tahmin dikkatli yorumlanmali."
-            ),
-        }
+    matches.sort(key=lambda m: (parse_date(m["utcDate"]), m["id"]))
+    matches = matches[:100]
 
-    return {
-        "level": "ADEQUATE",
-        "message": (
-            "Daha fazla takim gecmisi mevcut. "
-            "Bu, tahmin dogrulugunu garanti etmez."
-        ),
-    }
+    result = None
+    error = None
+    team_details = []
+    selected_match = request.form.get("match_id", "")
 
+    if request.method == "POST":
+        if league not in MODEL_SELECTIONS:
+            error = "Bu lig icin model henuz dogrulanmadi."
+        else:
+            match = next(
+                (m for m in matches if str(m["id"]) == selected_match),
+                None,
+            )
+            if match is None:
+                error = "Secilen mac bulunamadi."
+            else:
+                try:
+                    result = analyze_match(
+                        league,
+                        match["homeTeam"]["id"],
+                        match["awayTeam"]["id"],
+                        match["utcDate"],
+                    )
+                    latest = result.get("latest_match_utc")
+                    result["latest_match_tr"] = (
+                        turkey_time(latest) if latest else "Bilinmiyor"
+                    )
+                    for key, name in (
+                        ("home_team_freshness", match["homeTeam"]["name"]),
+                        ("away_team_freshness", match["awayTeam"]["name"]),
+                    ):
+                        info = result.get(key, {}).copy()
+                        latest_team = info.get("latest_match_utc")
+                        info["name"] = name
+                        info["latest_match_tr"] = (
+                            turkey_time(latest_team)
+                            if latest_team else "Bilinmiyor"
+                        )
+                        level = info.get("sufficiency_level", "INSUFFICIENT")
+                        info["sufficiency_label"] = SUFFICIENCY_LABELS.get(
+                            level, level
+                        )
+                        team_details.append(info)
+                except (ValueError, RuntimeError, TypeError, KeyError) as exc:
+                    error = str(exc)
 
-def team_freshness(history, team_id, kickoff):
-    cutoff = parse_date(kickoff)
-    team_id = int(team_id)
-
-    team_matches = [
-        match
-        for match in history
-        if (
-            match["homeTeam"]["id"] == team_id
-            or match["awayTeam"]["id"] == team_id
-        )
-        and parse_date(match["utcDate"]) < cutoff
-    ]
-
-    team_matches.sort(
-        key=lambda m: (
-            parse_date(m["utcDate"]),
-            m["id"],
-        )
+    return render_template_string(
+        PAGE_V8,
+        leagues=leagues,
+        supported=MODEL_SELECTIONS,
+        selected_league=league,
+        selected_match=selected_match,
+        matches=matches,
+        list_error=list_error,
+        result=result,
+        error=error,
+        labels=LABELS,
+        team_details=team_details,
+        market_quality=(result or {}).get("market_data_quality", {}),
+        sufficiency_labels=SUFFICIENCY_LABELS,
     )
 
-    count = len(team_matches)
-    sufficiency = history_sufficiency(count)
 
-    if not team_matches:
-        return {
-            "team_id": team_id,
-            "matches": 0,
-            "latest_match_utc": None,
-            "days_since_latest": None,
-            "freshness_status": "NO_DATA",
-            "freshness_message": (
-                "Bu takim icin gecmis mac yok."
-            ),
-            "sufficiency_level": sufficiency["level"],
-            "sufficiency_message": sufficiency["message"],
-        }
-
-    latest = parse_date(
-        team_matches[-1]["utcDate"]
-    )
-
-    days = (
-        cutoff - latest
-    ).total_seconds() / 86400
-
-    if days < 0:
-        raise ValueError(
-            "Gelecek takim verisi tespit edildi"
-        )
-
-    status, message = freshness_status(days)
-
-    return {
-        "team_id": team_id,
-        "matches": count,
-        "latest_match_utc": latest.isoformat(),
-        "days_since_latest": round(days, 1),
-        "freshness_status": status,
-        "freshness_message": message,
-        "sufficiency_level": sufficiency["level"],
-        "sufficiency_message": sufficiency["message"],
-    }
-
-
-def market_data_quality(home_info, away_info):
-    """Conservative shared-input quality assessment.
-
-    All three markets use the same team-history inputs.
-    Market-specific accuracy requires separate backtests.
-    """
-
-    levels = [
-        home_info["sufficiency_level"],
-        away_info["sufficiency_level"],
-    ]
-
-    freshness_levels = [
-        home_info["freshness_status"],
-        away_info["freshness_status"],
-    ]
-
-    weakest_level = min(
-        levels,
-        key=lambda x: QUALITY_ORDER.get(x, 0),
-    )
-
-    weakest_freshness = min(
-        freshness_levels,
-        key=lambda x: FRESHNESS_ORDER.get(x, 0),
-    )
-
-    if weakest_freshness == "NO_DATA":
-        effective_level = "INSUFFICIENT"
-    elif weakest_freshness == "STALE":
-        effective_level = min(
-            weakest_level,
-            "LOW",
-            key=lambda x: QUALITY_ORDER[x],
-        )
-    else:
-        effective_level = weakest_level
-
-    if effective_level == "INSUFFICIENT":
-        message = (
-            "Takim gecmisi yetersiz veya eksik. "
-            "Bu tahminin guvenilirligi belirsiz."
-        )
-    elif effective_level == "LOW":
-        message = (
-            "Az veya eski takim verisi kullaniliyor. "
-            "Yuksek olasiliklar dikkatle yorumlanmali."
-        )
-    elif effective_level == "MODERATE":
-        message = (
-            "Orta duzey veri mevcut. "
-            "Tahmin dogrulugu garanti edilmez."
-        )
-    else:
-        message = (
-            "Daha kapsamli takim gecmisi mevcut. "
-            "Modelin isabeti ayrica dogrulanmalidir."
-        )
-
-    output = {}
-
-    for key, name in MARKET_NAMES.items():
-        output[key] = {
-            "name": name,
-            "level": effective_level,
-            "freshness": weakest_freshness,
-            "home_matches": home_info["matches"],
-            "away_matches": away_info["matches"],
-            "message": message,
-            "independently_validated": False,
-        }
-
-    return output
-
-
-def analyze_match(
-    league,
-    home_id,
-    away_id,
-    kickoff,
-):
-    kickoff_time = parse_date(kickoff)
-
-    if kickoff_time <= datetime.now(timezone.utc):
-        raise ValueError(
-            "Yalnizca baslamamis maclar analiz edilir"
-        )
-
-    history = league_history(league, kickoff)
-
-    if len(history) < 20:
-        raise ValueError(
-            "Bu sezon yeterli lig verisi bulunamadi"
-        )
-
-    result = predict(
-        league,
-        int(home_id),
-        int(away_id),
-        kickoff,
-        history,
-    )
-
-    result["data_source"] = "football-data.org"
-    result["historical_matches_loaded"] = len(history)
-    result["live_odds_included"] = False
-
-    result.update(
-        freshness_info(history, kickoff)
-    )
-
-    home_info = team_freshness(
-        history, home_id, kickoff
-    )
-
-    away_info = team_freshness(
-        history, away_id, kickoff
-    )
-
-    result["home_team_freshness"] = home_info
-    result["away_team_freshness"] = away_info
-
-    levels = (
-        home_info["sufficiency_level"],
-        away_info["sufficiency_level"],
-    )
-
-    if "INSUFFICIENT" in levels:
-        result["data_quality_warning"] = (
-            "En az bir takim icin gecmis "
-            "mac sayisi yetersiz."
-        )
-    elif "LOW" in levels:
-        result["data_quality_warning"] = (
-            "En az bir takim icin gecmis "
-            "mac sayisi az. Tahminlerin "
-            "belirsizligi yuksek olabilir."
-        )
-    elif "MODERATE" in levels:
-        result["data_quality_warning"] = (
-            "Takim gecmisleri orta duzeyde. "
-            "Tahminleri dikkatli yorumlayin."
-        )
-    else:
-        result["data_quality_warning"] = (
-            "Takim gecmisleri daha kapsamli. "
-            "Bu, tahminin dogru olacagi "
-            "anlamina gelmez."
-        )
-
-    result["market_data_quality"] = (
-        market_data_quality(
-            home_info,
-            away_info,
-        )
-    )
-
-    return result
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
