@@ -1,4 +1,3 @@
-
 name: AVAX V8.2 Champions League Research
 
 on:
@@ -28,6 +27,12 @@ jobs:
         run: |
           python -m py_compile backtest_v82.py
           python -m py_compile backtest_v82_models.py
+          python -m py_compile backtest_v6.py
+          python -m py_compile backtest_v7.py
+          python -m py_compile test_v82_integrity.py
+
+      - name: V8.2 veri sizintisi ve mac siralamasi testleri
+        run: python -m unittest -v test_v82_integrity
 
       - name: Gecmis verileri geri yukle
         uses: actions/cache/restore@v4
