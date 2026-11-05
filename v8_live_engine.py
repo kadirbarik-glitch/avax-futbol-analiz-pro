@@ -1,8 +1,9 @@
+"""AVAX FUTBOL ANALIZ PRO V8.2 - Live Engine.
 
-"""AVAX FUTBOL ANALIZ PRO V8 - Live Engine.
+Supports five domestic leagues and Champions League.
 
-V6/V7 historical calculations with chronological
-match histories and pre-match opponent strengths.
+Uses chronological match histories and
+pre-kickoff opponent-strength snapshots.
 
 Experimental probabilities, not guaranteed outcomes.
 """
@@ -15,7 +16,7 @@ from backtest_v6 import probabilities, valid
 from backtest_v7 import CONFIGS, estimate as v7_estimate
 from v8_models import get_league_models
 
-LEAGUES = ("PL", "PD", "SA", "BL1", "FL1")
+LEAGUES = ("PL", "PD", "SA", "BL1", "FL1", "CL")
 
 MARKET_KEYS = {
     "match_result": ("home", "draw", "away"),
@@ -54,8 +55,6 @@ def strength(history, team, field, baseline):
 
 def build_histories(matches, kickoff):
     cutoff = parse_date(kickoff)
-
-    # Reject invalid matches and exclude future results.
     eligible = []
 
     for match in valid(matches):
@@ -64,7 +63,6 @@ def build_histories(matches, kickoff):
         if match_time < cutoff:
             eligible.append((match_time, match))
 
-    # Sort by actual UTC time, independent of input order.
     eligible.sort(
         key=lambda item: (
             item[0],
@@ -78,7 +76,6 @@ def build_histories(matches, kickoff):
     total_home = 0
     total_away = 0
     games = 0
-
     pos = 0
 
     while pos < len(eligible):
@@ -107,7 +104,6 @@ def build_histories(matches, kickoff):
             hg = match["score"]["fullTime"]["home"]
             ag = match["score"]["fullTime"]["away"]
 
-            # V6: fixed baseline of 1.4.
             s6 = (
                 strength(h6, aid, 2, 1.4),
                 strength(h6, aid, 1, 1.4),
@@ -115,8 +111,6 @@ def build_histories(matches, kickoff):
                 strength(h6, hid, 1, 1.4),
             )
 
-            # V7: field 1 uses league home average;
-            # field 2 uses league away average.
             s7 = (
                 strength(h7, aid, 2, league_away),
                 strength(h7, aid, 1, league_home),
@@ -128,8 +122,6 @@ def build_histories(matches, kickoff):
                 (hid, aid, hg, ag, s6, s7)
             )
 
-        # Update histories only after the whole
-        # simultaneous-kickoff batch is processed.
         for hid, aid, hg, ag, s6, s7 in updates:
             for history, snapshot in (
                 (h6, s6),
@@ -157,13 +149,7 @@ def build_histories(matches, kickoff):
         total_away / games if games >= 10 else 1.1
     )
 
-    return (
-        h6,
-        h7,
-        league_home,
-        league_away,
-        games,
-    )
+    return h6, h7, league_home, league_away, games
 
 
 def predict(league, home_id, away_id, kickoff, matches):
