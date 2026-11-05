@@ -36,6 +36,7 @@ jobs:
           python -m py_compile test_v82_real_data.py
           python -m py_compile test_v82_live.py
           python -m py_compile test_v82_api_integration.py
+          python -m py_compile test_v82_backtest_parity.py
 
       - name: V8.2 veri sizintisi ve siralama testleri
         run: python -m unittest -v test_v82_integrity
@@ -65,6 +66,9 @@ jobs:
 
       - name: V8.2 model karsilastirmasi
         run: python backtest_v82_models.py
+
+      - name: V8.2 backtest canli motor uyum testi
+        run: python -m unittest -v test_v82_backtest_parity
 
       - name: Verileri onbellege kaydet
         if: always()
