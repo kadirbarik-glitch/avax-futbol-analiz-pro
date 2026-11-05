@@ -1,9 +1,7 @@
 """AVAX FUTBOL ANALIZ PRO V8.2 - Data Layer.
 
-Fetches historical competition results.
-Reports latest match and data freshness.
-
-Experimental predictions. No guarantees.
+Competition and team-specific historical freshness.
+Only finished matches before kickoff are used.
 """
 
 from datetime import datetime, timezone
@@ -56,9 +54,34 @@ def league_history(league, kickoff):
     return history
 
 
-def freshness_info(history, kickoff):
-    """Describe historical data age at prediction time."""
+def freshness_status(days):
+    """Classify age of latest historical match."""
 
+    if days is None:
+        return (
+            "NO_DATA",
+            "Gecmis mac verisi bulunamadi.",
+        )
+
+    if days <= 14:
+        return (
+            "FRESH",
+            "Gecmis veriler yakin tarihli.",
+        )
+
+    if days <= 35:
+        return (
+            "AGING",
+            "Gecmis veriler bir miktar eski.",
+        )
+
+    return (
+        "STALE",
+        "Gecmis veriler eski olabilir.",
+    )
+
+
+def freshness_info(history, kickoff):
     if not history:
         return {
             "latest_match_utc": None,
@@ -76,27 +99,78 @@ def freshness_info(history, kickoff):
         for m in history
     )
 
-    days = (cutoff - latest).total_seconds() / 86400
+    days = (
+        cutoff - latest
+    ).total_seconds() / 86400
 
     if days < 0:
         raise ValueError(
             "Gelecek mac verisi tespit edildi"
         )
 
-    if days <= 14:
-        status = "FRESH"
-        message = "Gecmis veriler yakin tarihli."
-    elif days <= 35:
-        status = "AGING"
-        message = "Gecmis veriler bir miktar eski."
-    else:
-        status = "STALE"
-        message = (
-            "Gecmis veriler eski olabilir. "
-            "Tahmini dikkatli degerlendirin."
-        )
+    status, message = freshness_status(days)
 
     return {
+        "latest_match_utc": latest.isoformat(),
+        "days_since_latest": round(days, 1),
+        "freshness_status": status,
+        "freshness_message": message,
+    }
+
+
+def team_freshness(history, team_id, kickoff):
+    """Calculate freshness for a specific team."""
+
+    cutoff = parse_date(kickoff)
+    team_id = int(team_id)
+
+    team_matches = [
+        match
+        for match in history
+        if (
+            match["homeTeam"]["id"] == team_id
+            or match["awayTeam"]["id"] == team_id
+        )
+        and parse_date(match["utcDate"]) < cutoff
+    ]
+
+    team_matches.sort(
+        key=lambda m: (
+            parse_date(m["utcDate"]),
+            m["id"],
+        )
+    )
+
+    if not team_matches:
+        return {
+            "team_id": team_id,
+            "matches": 0,
+            "latest_match_utc": None,
+            "days_since_latest": None,
+            "freshness_status": "NO_DATA",
+            "freshness_message": (
+                "Bu takim icin gecmis mac yok."
+            ),
+        }
+
+    latest = parse_date(
+        team_matches[-1]["utcDate"]
+    )
+
+    days = (
+        cutoff - latest
+    ).total_seconds() / 86400
+
+    if days < 0:
+        raise ValueError(
+            "Gelecek takim verisi tespit edildi"
+        )
+
+    status, message = freshness_status(days)
+
+    return {
+        "team_id": team_id,
+        "matches": len(team_matches),
         "latest_match_utc": latest.isoformat(),
         "days_since_latest": round(days, 1),
         "freshness_status": status,
@@ -110,8 +184,6 @@ def analyze_match(
     away_id,
     kickoff,
 ):
-    """Generate prediction and data freshness report."""
-
     kickoff_time = parse_date(kickoff)
 
     if kickoff_time <= datetime.now(timezone.utc):
@@ -140,6 +212,14 @@ def analyze_match(
 
     result.update(
         freshness_info(history, kickoff)
+    )
+
+    result["home_team_freshness"] = team_freshness(
+        history, home_id, kickoff
+    )
+
+    result["away_team_freshness"] = team_freshness(
+        history, away_id, kickoff
     )
 
     return result
