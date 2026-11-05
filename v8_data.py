@@ -1,7 +1,9 @@
+
 """AVAX FUTBOL ANALIZ PRO V8.2 - Data Layer.
 
-Competition and team-specific historical freshness.
-Only finished matches before kickoff are used.
+Historical competition and team freshness.
+Team history sufficiency warnings.
+Only finished pre-kickoff matches are used.
 """
 
 from datetime import datetime, timezone
@@ -55,8 +57,6 @@ def league_history(league, kickoff):
 
 
 def freshness_status(days):
-    """Classify age of latest historical match."""
-
     if days is None:
         return (
             "NO_DATA",
@@ -118,9 +118,46 @@ def freshness_info(history, kickoff):
     }
 
 
-def team_freshness(history, team_id, kickoff):
-    """Calculate freshness for a specific team."""
+def history_sufficiency(count):
+    """Heuristic warning, not calibrated confidence."""
 
+    if count < 3:
+        return {
+            "level": "INSUFFICIENT",
+            "message": (
+                "Tahmin icin yeterli takim "
+                "gecmisi bulunmuyor."
+            ),
+        }
+
+    if count < 5:
+        return {
+            "level": "LOW",
+            "message": (
+                "Takimin gecmis mac sayisi az. "
+                "Tahmin belirsizligi yuksek olabilir."
+            ),
+        }
+
+    if count < 10:
+        return {
+            "level": "MODERATE",
+            "message": (
+                "Orta duzeyde takim gecmisi var. "
+                "Tahmin dikkatli yorumlanmali."
+            ),
+        }
+
+    return {
+        "level": "ADEQUATE",
+        "message": (
+            "Daha fazla takim gecmisi mevcut. "
+            "Bu, tahmin dogrulugunu garanti etmez."
+        ),
+    }
+
+
+def team_freshness(history, team_id, kickoff):
     cutoff = parse_date(kickoff)
     team_id = int(team_id)
 
@@ -141,6 +178,9 @@ def team_freshness(history, team_id, kickoff):
         )
     )
 
+    count = len(team_matches)
+    sufficiency = history_sufficiency(count)
+
     if not team_matches:
         return {
             "team_id": team_id,
@@ -151,6 +191,8 @@ def team_freshness(history, team_id, kickoff):
             "freshness_message": (
                 "Bu takim icin gecmis mac yok."
             ),
+            "sufficiency_level": sufficiency["level"],
+            "sufficiency_message": sufficiency["message"],
         }
 
     latest = parse_date(
@@ -170,11 +212,13 @@ def team_freshness(history, team_id, kickoff):
 
     return {
         "team_id": team_id,
-        "matches": len(team_matches),
+        "matches": count,
         "latest_match_utc": latest.isoformat(),
         "days_since_latest": round(days, 1),
         "freshness_status": status,
         "freshness_message": message,
+        "sufficiency_level": sufficiency["level"],
+        "sufficiency_message": sufficiency["message"],
     }
 
 
@@ -214,12 +258,43 @@ def analyze_match(
         freshness_info(history, kickoff)
     )
 
-    result["home_team_freshness"] = team_freshness(
+    home_info = team_freshness(
         history, home_id, kickoff
     )
 
-    result["away_team_freshness"] = team_freshness(
+    away_info = team_freshness(
         history, away_id, kickoff
     )
+
+    result["home_team_freshness"] = home_info
+    result["away_team_freshness"] = away_info
+
+    levels = (
+        home_info["sufficiency_level"],
+        away_info["sufficiency_level"],
+    )
+
+    if "INSUFFICIENT" in levels:
+        result["data_quality_warning"] = (
+            "En az bir takim icin gecmis "
+            "mac sayisi yetersiz."
+        )
+    elif "LOW" in levels:
+        result["data_quality_warning"] = (
+            "En az bir takim icin gecmis "
+            "mac sayisi az. Tahminlerin "
+            "belirsizligi yuksek olabilir."
+        )
+    elif "MODERATE" in levels:
+        result["data_quality_warning"] = (
+            "Takim gecmisleri orta duzeyde. "
+            "Tahminleri dikkatli yorumlayin."
+        )
+    else:
+        result["data_quality_warning"] = (
+            "Takim gecmisleri daha kapsamli. "
+            "Bu, tahminin dogru olacagi "
+            "anlamina gelmez."
+        )
 
     return result
