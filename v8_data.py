@@ -1,9 +1,11 @@
-
-"""AVAX FUTBOL ANALIZ PRO V8.2 - Data Layer.
+"""AVAX FUTBOL ANALIZ PRO V8.3 - Data Layer.
 
 Historical competition and team freshness.
-Team history sufficiency warnings.
+Team history sufficiency and market-level warnings.
 Only finished pre-kickoff matches are used.
+
+Market quality indicators are heuristic, not calibrated
+prediction confidence or independently validated accuracy.
 """
 
 from datetime import datetime, timezone
@@ -12,6 +14,27 @@ from app_v3 import api_get
 from backtest_v6 import valid
 from v8_live_engine import predict, parse_date
 from v8_models import MODEL_SELECTIONS
+
+
+QUALITY_ORDER = {
+    "INSUFFICIENT": 0,
+    "LOW": 1,
+    "MODERATE": 2,
+    "ADEQUATE": 3,
+}
+
+FRESHNESS_ORDER = {
+    "NO_DATA": 0,
+    "STALE": 1,
+    "AGING": 2,
+    "FRESH": 3,
+}
+
+MARKET_NAMES = {
+    "match_result": "Mac sonucu",
+    "over_under": "2.5 Alt/Ust",
+    "btts": "KG Var/Yok",
+}
 
 
 def league_history(league, kickoff):
@@ -222,6 +245,81 @@ def team_freshness(history, team_id, kickoff):
     }
 
 
+def market_data_quality(home_info, away_info):
+    """Conservative shared-input quality assessment.
+
+    All three markets use the same team-history inputs.
+    Market-specific accuracy requires separate backtests.
+    """
+
+    levels = [
+        home_info["sufficiency_level"],
+        away_info["sufficiency_level"],
+    ]
+
+    freshness_levels = [
+        home_info["freshness_status"],
+        away_info["freshness_status"],
+    ]
+
+    weakest_level = min(
+        levels,
+        key=lambda x: QUALITY_ORDER.get(x, 0),
+    )
+
+    weakest_freshness = min(
+        freshness_levels,
+        key=lambda x: FRESHNESS_ORDER.get(x, 0),
+    )
+
+    if weakest_freshness == "NO_DATA":
+        effective_level = "INSUFFICIENT"
+    elif weakest_freshness == "STALE":
+        effective_level = min(
+            weakest_level,
+            "LOW",
+            key=lambda x: QUALITY_ORDER[x],
+        )
+    else:
+        effective_level = weakest_level
+
+    if effective_level == "INSUFFICIENT":
+        message = (
+            "Takim gecmisi yetersiz veya eksik. "
+            "Bu tahminin guvenilirligi belirsiz."
+        )
+    elif effective_level == "LOW":
+        message = (
+            "Az veya eski takim verisi kullaniliyor. "
+            "Yuksek olasiliklar dikkatle yorumlanmali."
+        )
+    elif effective_level == "MODERATE":
+        message = (
+            "Orta duzey veri mevcut. "
+            "Tahmin dogrulugu garanti edilmez."
+        )
+    else:
+        message = (
+            "Daha kapsamli takim gecmisi mevcut. "
+            "Modelin isabeti ayrica dogrulanmalidir."
+        )
+
+    output = {}
+
+    for key, name in MARKET_NAMES.items():
+        output[key] = {
+            "name": name,
+            "level": effective_level,
+            "freshness": weakest_freshness,
+            "home_matches": home_info["matches"],
+            "away_matches": away_info["matches"],
+            "message": message,
+            "independently_validated": False,
+        }
+
+    return output
+
+
 def analyze_match(
     league,
     home_id,
@@ -296,5 +394,12 @@ def analyze_match(
             "Bu, tahminin dogru olacagi "
             "anlamina gelmez."
         )
+
+    result["market_data_quality"] = (
+        market_data_quality(
+            home_info,
+            away_info,
+        )
+    )
 
     return result
