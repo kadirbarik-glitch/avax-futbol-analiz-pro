@@ -1,18 +1,22 @@
 """AVAX FUTBOL ANALIZ PRO V8.2 - Web Panel.
 
-Six supported competitions including Champions League.
-Experimental predictions. No guaranteed outcomes.
+Six competitions, Turkish kickoff times,
+historical data freshness and model details.
 """
 
 import os
+from datetime import timedelta, timezone
 
 from flask import request, render_template_string
 
 from app_v3 import app, api_get
 from v8_data import analyze_match
+from v8_live_engine import parse_date
 from v8_models import MODEL_SELECTIONS
 
 V8_VERSION = "8.2-beta"
+
+TR_TIMEZONE = timezone(timedelta(hours=3))
 
 DEFAULT_LEAGUES = {
     "PL": "Premier League",
@@ -72,6 +76,15 @@ select {background:#334155;color:white}
 .error {color:#fda4af}
 .muted {color:#cbd5e1;font-size:13px}
 a {color:#86efac}
+.info {
+ background:#334155;
+ border-radius:9px;
+ padding:12px;
+ margin:10px 0;
+}
+.warning {
+ color:#fbbf24;
+}
 </style>
 </head>
 <body>
@@ -105,7 +118,6 @@ Garanti veya bahis tavsiyesi degildir.
 {% if selected_league not in supported %}
 <p class="muted">
 Bu lig icin model henuz dogrulanmadi.
-Maclar goruntulenebilir, tahmin uretilmez.
 </p>
 {% endif %}
 
@@ -120,7 +132,7 @@ Maclar goruntulenebilir, tahmin uretilmez.
 selected{% endif %}>
 {{ match.homeTeam.name }} -
 {{ match.awayTeam.name }}
-({{ match.utcDate[:16] }})
+({{ match.turkey_time }} TSİ)
 </option>
 {% endfor %}
 </select>
@@ -175,6 +187,44 @@ Gecmis mac sayisi:
 {{ result.matches_in_history }}
 </p>
 </div>
+
+<div class="card">
+<h2>Veri guncelligi</h2>
+
+<div class="info">
+<strong>Veri kaynagi:</strong>
+{{ result.data_source }}
+</div>
+
+<div class="info">
+<strong>Yuklenen gecmis mac:</strong>
+{{ result.historical_matches_loaded }}
+</div>
+
+<div class="info">
+<strong>Son gecmis mac:</strong>
+{{ result.latest_match_tr }}
+</div>
+
+<div class="info">
+<strong>Son mac ile tahmin maci arasi:</strong>
+{{ result.days_since_latest }} gun
+</div>
+
+<div class="info">
+<strong>Veri durumu:</strong>
+{{ result.freshness_status }}
+</div>
+
+<p class="{% if result.freshness_status == 'STALE' %}warning{% else %}muted{% endif %}">
+{{ result.freshness_message }}
+</p>
+
+<p class="muted">
+Bu bilgi API guncelleme zamanini degil,
+son tamamlanmis macin tarihini gosterir.
+</p>
+</div>
 {% endif %}
 
 <div class="card">
@@ -191,9 +241,15 @@ mevcut V3 ekraninda bulunur.
 """
 
 
+def turkey_time(value):
+    dt = parse_date(value)
+    return dt.astimezone(
+        TR_TIMEZONE
+    ).strftime("%d.%m.%Y %H:%M")
+
+
 def get_leagues():
     data, error = api_get("/competitions")
-
     leagues = DEFAULT_LEAGUES.copy()
 
     if error or not isinstance(data, dict):
@@ -227,8 +283,9 @@ def avax_v8_status():
 def avax_v8_panel():
     leagues = get_leagues()
 
-    league = request.values.get("league", "PL")
-    league = str(league).upper()
+    league = str(
+        request.values.get("league", "PL")
+    ).upper()
 
     if league not in leagues:
         league = "PL"
@@ -254,11 +311,20 @@ def avax_v8_panel():
                 and home.get("id") is not None
                 and away.get("id") is not None
             ):
+                match = match.copy()
+
+                try:
+                    match["turkey_time"] = turkey_time(
+                        match["utcDate"]
+                    )
+                except (ValueError, TypeError):
+                    continue
+
                 matches.append(match)
 
     matches.sort(
         key=lambda m: (
-            m["utcDate"],
+            parse_date(m["utcDate"]),
             m["id"],
         )
     )
@@ -295,6 +361,16 @@ def avax_v8_panel():
                         match["awayTeam"]["id"],
                         match["utcDate"],
                     )
+
+                    latest = result.get(
+                        "latest_match_utc"
+                    )
+
+                    result["latest_match_tr"] = (
+                        turkey_time(latest)
+                        if latest else "Bilinmiyor"
+                    )
+
                 except (
                     ValueError,
                     RuntimeError,
