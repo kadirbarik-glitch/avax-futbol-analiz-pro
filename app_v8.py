@@ -1,12 +1,18 @@
-"""AVAX V8 - Dinamik lig ve mac secimi."""
+"""AVAX FUTBOL ANALIZ PRO V8.2 - Web Panel.
+
+Six supported competitions including Champions League.
+Experimental predictions. No guaranteed outcomes.
+"""
 
 import os
+
 from flask import request, render_template_string
+
 from app_v3 import app, api_get
 from v8_data import analyze_match
 from v8_models import MODEL_SELECTIONS
 
-V8_VERSION = "8.1-beta"
+V8_VERSION = "8.2-beta"
 
 DEFAULT_LEAGUES = {
     "PL": "Premier League",
@@ -14,6 +20,7 @@ DEFAULT_LEAGUES = {
     "SA": "Serie A",
     "BL1": "Bundesliga",
     "FL1": "Ligue 1",
+    "CL": "UEFA Champions League",
 }
 
 LABELS = [
@@ -33,7 +40,7 @@ PAGE_V8 = """
 <meta charset="utf-8">
 <meta name="viewport"
  content="width=device-width,initial-scale=1">
-<title>AVAX FUTBOL ANALIZ PRO V8</title>
+<title>AVAX FUTBOL ANALIZ PRO V8.2</title>
 <style>
 body {
  margin:0;padding:16px;background:#0f172a;
@@ -53,6 +60,9 @@ button {
  background:#22c55e;color:#052e16;
  font-weight:bold;cursor:pointer;
 }
+button:disabled {
+ opacity:.45;cursor:not-allowed;
+}
 select {background:#334155;color:white}
 .result {
  display:flex;justify-content:space-between;
@@ -66,7 +76,7 @@ a {color:#86efac}
 </head>
 <body>
 <main>
-<h1>AVAX FUTBOL ANALIZ PRO V8</h1>
+<h1>AVAX FUTBOL ANALIZ PRO V8.2</h1>
 <p class="muted">
 Deneysel futbol tahminleri.
 Garanti veya bahis tavsiyesi degildir.
@@ -83,7 +93,7 @@ Garanti veya bahis tavsiyesi degildir.
 <option value="{{ code }}"
 {% if code == selected_league %}selected{% endif %}>
 {{ name }}
-{% if code in supported %}(V8){% endif %}
+{% if code in supported %}(V8.2){% endif %}
 </option>
 {% endfor %}
 </select>
@@ -94,7 +104,7 @@ Garanti veya bahis tavsiyesi degildir.
 
 {% if selected_league not in supported %}
 <p class="muted">
-Bu ligde V8 modeli henuz dogrulanmadi.
+Bu lig icin model henuz dogrulanmadi.
 Maclar goruntulenebilir, tahmin uretilmez.
 </p>
 {% endif %}
@@ -114,16 +124,18 @@ selected{% endif %}>
 </option>
 {% endfor %}
 </select>
+
 <button type="submit"
 {% if not matches or selected_league not in supported %}
 disabled{% endif %}>
-V8 ANALIZ ET
+V8.2 ANALIZ ET
 </button>
 </form>
 
 {% if list_error %}
 <p class="error">{{ list_error }}</p>
 {% endif %}
+
 {% if not matches %}
 <p class="muted">
 Bu lig icin planlanmis mac bulunamadi.
@@ -139,7 +151,7 @@ Bu lig icin planlanmis mac bulunamadi.
 
 {% if result %}
 <div class="card">
-<h2>V8 tahmin sonuclari</h2>
+<h2>V8.2 tahmin sonuclari</h2>
 {% for label, key in labels %}
 <div class="result">
 <span>{{ label }}</span>
@@ -167,7 +179,7 @@ Gecmis mac sayisi:
 
 <div class="card">
 <p class="muted">
-V8 olasiliklari deneysel sonuclardir.
+V8.2 olasiliklari deneysel sonuclardir.
 Skor, ilk yari ve ikinci yari tahminleri
 mevcut V3 ekraninda bulunur.
 </p>
@@ -182,19 +194,22 @@ mevcut V3 ekraninda bulunur.
 def get_leagues():
     data, error = api_get("/competitions")
 
+    leagues = DEFAULT_LEAGUES.copy()
+
     if error or not isinstance(data, dict):
-        return DEFAULT_LEAGUES.copy()
+        return leagues
 
-    competitions = data.get("competitions", [])
-    leagues = {}
+    for item in data.get("competitions", []):
+        if not isinstance(item, dict):
+            continue
 
-    for item in competitions:
         code = item.get("code")
         name = item.get("name")
+
         if code and name:
             leagues[code] = name
 
-    return leagues or DEFAULT_LEAGUES.copy()
+    return leagues
 
 
 @app.get("/v8/status")
@@ -203,7 +218,7 @@ def avax_v8_status():
         "application": "AVAX FUTBOL ANALIZ PRO",
         "version": V8_VERSION,
         "status": "beta",
-        "v8_model_integrated": True,
+        "supported_leagues": list(MODEL_SELECTIONS),
         "live_odds_included": False,
     }
 
@@ -213,9 +228,10 @@ def avax_v8_panel():
     leagues = get_leagues()
 
     league = request.values.get("league", "PL")
+    league = str(league).upper()
 
     if league not in leagues:
-        league = next(iter(leagues))
+        league = "PL"
 
     data, list_error = api_get(
         f"/competitions/{league}/matches"
@@ -223,23 +239,41 @@ def avax_v8_panel():
     )
 
     matches = []
+
     if isinstance(data, dict):
-        matches = [
-            m for m in data.get("matches", [])
-            if m.get("id")
-            and m.get("utcDate")
-            and (m.get("homeTeam") or {}).get("id")
-            and (m.get("awayTeam") or {}).get("id")
-        ][:100]
+        for match in data.get("matches", []):
+            if not isinstance(match, dict):
+                continue
+
+            home = match.get("homeTeam") or {}
+            away = match.get("awayTeam") or {}
+
+            if (
+                match.get("id") is not None
+                and match.get("utcDate")
+                and home.get("id") is not None
+                and away.get("id") is not None
+            ):
+                matches.append(match)
+
+    matches.sort(
+        key=lambda m: (
+            m["utcDate"],
+            m["id"],
+        )
+    )
+    matches = matches[:100]
 
     result = None
     error = None
-    selected_match = request.form.get("match_id", "")
+    selected_match = request.form.get(
+        "match_id", ""
+    )
 
     if request.method == "POST":
         if league not in MODEL_SELECTIONS:
             error = (
-                "Bu lig icin V8 modeli "
+                "Bu lig icin model "
                 "henuz dogrulanmadi."
             )
         else:
