@@ -1,7 +1,7 @@
 """AVAX FUTBOL ANALIZ PRO V8.2 - Web Panel.
 
 Six competitions, Turkish kickoff times,
-competition and team data freshness.
+competition/team freshness and data sufficiency.
 """
 
 import os
@@ -15,7 +15,6 @@ from v8_live_engine import parse_date
 from v8_models import MODEL_SELECTIONS
 
 V8_VERSION = "8.2-beta"
-
 TR_TIMEZONE = timezone(timedelta(hours=3))
 
 DEFAULT_LEAGUES = {
@@ -36,6 +35,13 @@ LABELS = [
     ("KG Var", "btts"),
     ("KG Yok", "no_btts"),
 ]
+
+SUFFICIENCY_LABELS = {
+    "INSUFFICIENT": "Yetersiz veri",
+    "LOW": "Az veri",
+    "MODERATE": "Orta duzey veri",
+    "ADEQUATE": "Daha kapsamli veri",
+}
 
 PAGE_V8 = """
 <!doctype html>
@@ -82,7 +88,9 @@ a {color:#86efac}
  padding:12px;
  margin:10px 0;
 }
-.warning {color:#fbbf24}
+.warning {
+ color:#fbbf24;
+}
 .team-grid {
  display:grid;
  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
@@ -94,12 +102,17 @@ a {color:#86efac}
  padding:15px;
 }
 .team-card h3 {
- margin-top:0;
- color:#86efac;
+ margin-top:0;color:#86efac;
 }
 .team-card p {
- margin:9px 0;
- font-size:14px;
+ margin:9px 0;font-size:14px;
+}
+.quality {
+ border:1px solid #fbbf24;
+ border-radius:10px;
+ padding:14px;
+ margin:14px 0;
+ color:#fde68a;
 }
 </style>
 </head>
@@ -187,6 +200,11 @@ Bu lig icin planlanmis mac bulunamadi.
 </strong>
 </div>
 {% endfor %}
+
+<div class="quality">
+<strong>Veri yeterliligi uyarisi</strong>
+<p>{{ result.data_quality_warning }}</p>
+</div>
 </div>
 
 <div class="card">
@@ -205,7 +223,6 @@ Gecmis mac sayisi:
 
 <div class="card">
 <h2>Veri guncelligi</h2>
-
 <div class="info">
 <strong>Veri kaynagi:</strong>
 {{ result.data_source }}
@@ -226,7 +243,6 @@ Gecmis mac sayisi:
 <strong>Veri durumu:</strong>
 {{ result.freshness_status }}
 </div>
-
 <p class="{% if result.freshness_status == 'STALE' %}warning{% else %}muted{% endif %}">
 {{ result.freshness_message }}
 </p>
@@ -234,7 +250,6 @@ Gecmis mac sayisi:
 
 <div class="card">
 <h2>Takim bazli veri kontrolu</h2>
-
 <div class="team-grid">
 {% for team in team_details %}
 <div class="team-card">
@@ -259,21 +274,27 @@ Bilinmiyor
 {% endif %}
 </p>
 
-<p class="{% if team.freshness_status == 'STALE' %}warning{% endif %}">
-<strong>Durum:</strong>
+<p>
+<strong>Veri durumu:</strong>
 {{ team.freshness_status }}
 </p>
 
+<p class="{% if team.sufficiency_level in ['LOW', 'INSUFFICIENT'] %}warning{% endif %}">
+<strong>Veri yeterliligi:</strong>
+{{ team.sufficiency_label }}
+</p>
+
 <p class="muted">
-{{ team.freshness_message }}
+{{ team.sufficiency_message }}
 </p>
 </div>
 {% endfor %}
 </div>
-
 <p class="muted">
 Takim verileri sadece secilen yarismanin
 mevcut sezonundaki maclari kapsar.
+Veri yeterliligi esikleri uyarilardir;
+kalibre edilmis guven puanlari degildir.
 </p>
 </div>
 {% endif %}
@@ -444,6 +465,17 @@ def avax_v8_panel():
                             turkey_time(latest_team)
                             if latest_team
                             else "Bilinmiyor"
+                        )
+
+                        level = info.get(
+                            "sufficiency_level",
+                            "INSUFFICIENT",
+                        )
+
+                        info["sufficiency_label"] = (
+                            SUFFICIENCY_LABELS.get(
+                                level, level
+                            )
                         )
 
                         team_details.append(info)
