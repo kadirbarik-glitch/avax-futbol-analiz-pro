@@ -1,8 +1,9 @@
+"""AVAX FUTBOL ANALIZ PRO V8.2 - Data Layer.
 
-"""AVAX FUTBOL ANALIZ PRO V8 - Veri Baglantisi.
+Fetches historical competition results.
+Reports latest match and data freshness.
 
-Gercek lig maclarini mevcut API baglantisindan alir.
-Mac baslangicindan sonraki verileri dislar.
+Experimental predictions. No guarantees.
 """
 
 from datetime import datetime, timezone
@@ -21,7 +22,6 @@ def league_history(league, kickoff):
 
     cutoff = parse_date(kickoff)
 
-    # Avrupa liglerinde sezon genellikle yaz aylarinda baslar.
     season = (
         cutoff.year
         if cutoff.month >= 7
@@ -56,13 +56,61 @@ def league_history(league, kickoff):
     return history
 
 
+def freshness_info(history, kickoff):
+    """Describe historical data age at prediction time."""
+
+    if not history:
+        return {
+            "latest_match_utc": None,
+            "days_since_latest": None,
+            "freshness_status": "NO_DATA",
+            "freshness_message": (
+                "Gecmis mac verisi bulunamadi."
+            ),
+        }
+
+    cutoff = parse_date(kickoff)
+
+    latest = max(
+        parse_date(m["utcDate"])
+        for m in history
+    )
+
+    days = (cutoff - latest).total_seconds() / 86400
+
+    if days < 0:
+        raise ValueError(
+            "Gelecek mac verisi tespit edildi"
+        )
+
+    if days <= 14:
+        status = "FRESH"
+        message = "Gecmis veriler yakin tarihli."
+    elif days <= 35:
+        status = "AGING"
+        message = "Gecmis veriler bir miktar eski."
+    else:
+        status = "STALE"
+        message = (
+            "Gecmis veriler eski olabilir. "
+            "Tahmini dikkatli degerlendirin."
+        )
+
+    return {
+        "latest_match_utc": latest.isoformat(),
+        "days_since_latest": round(days, 1),
+        "freshness_status": status,
+        "freshness_message": message,
+    }
+
+
 def analyze_match(
     league,
     home_id,
     away_id,
     kickoff,
 ):
-    """Gercek lig verileriyle V8 tahmini uret."""
+    """Generate prediction and data freshness report."""
 
     kickoff_time = parse_date(kickoff)
 
@@ -89,5 +137,9 @@ def analyze_match(
     result["data_source"] = "football-data.org"
     result["historical_matches_loaded"] = len(history)
     result["live_odds_included"] = False
+
+    result.update(
+        freshness_info(history, kickoff)
+    )
 
     return result
