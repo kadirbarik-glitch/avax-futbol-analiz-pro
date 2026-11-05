@@ -1,0 +1,39 @@
+
+name: AVAX V8.2 Integrity Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v3-gelistirme
+    paths:
+      - 'test_v82_integrity.py'
+      - 'backtest_v6.py'
+      - 'backtest_v7.py'
+      - '.github/workflows/v82-integrity.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python dosyalarini kontrol et
+        run: |
+          python -m py_compile backtest_v6.py
+          python -m py_compile backtest_v7.py
+          python -m py_compile test_v82_integrity.py
+
+      - name: Veri sizintisi ve mac siralamasi testleri
+        run: python test_v82_integrity.py
