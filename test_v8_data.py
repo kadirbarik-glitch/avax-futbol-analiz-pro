@@ -83,9 +83,19 @@ class TestV8Data(unittest.TestCase):
             )
 
     def test_live_prediction_connection(self):
+        
         fake_history = [
-            {"id": i} for i in range(25)
+            {
+                "id": i,
+                "utcDate": (
+                    self.now - timedelta(days=i + 1)
+                ).isoformat(),
+                "homeTeam": {"id": 1},
+                "awayTeam": {"id": 2},
+            }
+            for i in range(25)
         ]
+
 
         fake_result = {
             "probabilities_percent": {
