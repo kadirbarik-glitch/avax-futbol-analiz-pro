@@ -97,9 +97,11 @@ jobs:
           assert response.status_code == 200
 
           data = response.get_json()
-          assert data["version"] == "8.1-beta"
+          assert data["version"] == "8.3-beta"
           assert data["status"] == "beta"
-          assert data["v8_model_integrated"] is True
+          assert set(data["supported_leagues"]) == {
+              "PL", "PD", "SA", "BL1", "FL1", "CL"
+          }
           assert data["live_odds_included"] is False
 
           with patch(
