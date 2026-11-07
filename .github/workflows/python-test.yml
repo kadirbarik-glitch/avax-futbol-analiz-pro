@@ -62,7 +62,10 @@ jobs:
           )
           from backtest_v7 import CONFIGS
 
-          assert len(MODEL_SELECTIONS) == 5
+          expected_leagues = {
+              "PL", "PD", "SA", "BL1", "FL1", "CL"
+          }
+          assert set(MODEL_SELECTIONS) == expected_leagues
 
           for league in MODEL_SELECTIONS:
               models = get_league_models(league)
