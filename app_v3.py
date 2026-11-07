@@ -14,11 +14,12 @@ API_CACHE = {}
 CACHE_SECONDS = 300
 
 
-def api_get(path):
+def api_get(path, cache_seconds=None):
     now = time.monotonic()
     cached = API_CACHE.get(path)
+    ttl = CACHE_SECONDS if cache_seconds is None else cache_seconds
 
-    if cached and now - cached['time'] < CACHE_SECONDS:
+    if cached and now - cached['time'] < ttl:
         return cached['data'], None
 
     blocked_until = API_CACHE.get('_blocked_until', 0)

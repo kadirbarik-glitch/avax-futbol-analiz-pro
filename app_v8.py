@@ -1,10 +1,15 @@
 """AVAX FUTBOL ANALIZ PRO V8.3 - Web Panel."""
 
 import os
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from flask import request, render_template_string
 from app_v3 import app, api_get
-from v8_data import analyze_match
+from v8_data import analyze_match, competition_readiness
+from v8_leagues import (
+    discover_catalog,
+    selected_capability,
+    with_data_status,
+)
 from v8_live_engine import parse_date
 from v8_models import MODEL_SELECTIONS
 
@@ -82,17 +87,18 @@ a{color:#86efac}
 <form method="get" action="/v8">
 <label for="league">Lig sec</label>
 <select id="league" name="league" onchange="this.form.submit()">
-{% for code, name in leagues.items() %}
-<option value="{{ code }}" {% if code == selected_league %}selected{% endif %}>
-{{ name }} {% if code in supported %}(V8.3){% endif %}
+{% for item in leagues %}
+<option value="{{ item.code }}" {% if item.code == selected_league %}selected{% endif %}>
+{{ item.name }} {% if item.model_status == 'VALIDATED' %}(V8.3){% else %}(Arastirma gerekli){% endif %}
 </option>
 {% endfor %}
 </select>
 <noscript><button type="submit">Maclari getir</button></noscript>
 </form>
-{% if selected_league not in supported %}
-<p class="muted">Bu lig icin model henuz dogrulanmadi.</p>
-{% endif %}
+<div class="info"><strong>{{ selected_capability.name }}</strong><br>
+{{ selected_capability.access_message }}<br>
+{{ selected_capability.data_message }}<br>
+{{ selected_capability.model_message }}</div>
 <form method="post" action="/v8">
 <input type="hidden" name="league" value="{{ selected_league }}">
 <label for="match_id">Mac sec</label>
@@ -103,7 +109,7 @@ a{color:#86efac}
 </option>
 {% endfor %}
 </select>
-<button type="submit" {% if not matches or selected_league not in supported %}disabled{% endif %}>V8.3 ANALIZ ET</button>
+<button type="submit" {% if not matches or not selected_capability.prediction_allowed %}disabled{% endif %}>V8.3 ANALIZ ET</button>
 </form>
 {% if list_error %}<p class="error">{{ list_error }}</p>{% endif %}
 {% if not matches %}<p class="muted">Bu lig icin planlanmis mac bulunamadi.</p>{% endif %}
@@ -182,18 +188,10 @@ def turkey_time(value):
 
 
 def get_leagues():
-    data, error = api_get("/competitions")
-    leagues = DEFAULT_LEAGUES.copy()
-    if error or not isinstance(data, dict):
-        return leagues
-    for item in data.get("competitions", []):
-        if not isinstance(item, dict):
-            continue
-        code = item.get("code")
-        name = item.get("name")
-        if code and name:
-            leagues[code] = name
-    return leagues
+    data, error = api_get(
+        "/competitions", cache_seconds=43200
+    )
+    return discover_catalog(data, error)
 
 
 @app.get("/v8/status")
@@ -210,13 +208,31 @@ def avax_v8_status():
 @app.route("/v8", methods=["GET", "POST"])
 def avax_v8_panel():
     leagues = get_leagues()
-    league = str(request.values.get("league", "PL")).upper()
-    if league not in leagues:
-        league = "PL"
+    requested = str(request.values.get("league", "")).upper()
+    league = requested or (leagues[0]["code"] if leagues else "PL")
+    selected = selected_capability(leagues, league)
+    if selected["access_status"] != "ACCESSIBLE":
+        league = leagues[0]["code"] if leagues else "PL"
+        selected = selected_capability(leagues, league)
 
-    data, list_error = api_get(
-        f"/competitions/{league}/matches?status=SCHEDULED"
-    )
+    list_error = None
+    data = None
+    if selected["access_status"] == "ACCESSIBLE":
+        data, list_error = api_get(
+            f"/competitions/{league}/matches?status=SCHEDULED"
+        )
+    else:
+        list_error = selected["access_message"]
+
+    if (
+        selected["access_status"] == "ACCESSIBLE"
+        and selected["model_status"] != "VALIDATED"
+    ):
+        readiness = competition_readiness(
+            league,
+            (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+        )
+        selected = with_data_status(selected, readiness)
     matches = []
 
     if isinstance(data, dict):
@@ -247,8 +263,11 @@ def avax_v8_panel():
     selected_match = request.form.get("match_id", "")
 
     if request.method == "POST":
-        if league not in MODEL_SELECTIONS:
-            error = "Bu lig icin model henuz dogrulanmadi."
+        if not selected["prediction_allowed"]:
+            error = (
+                "Bu lig icin tahmin uretilemez: "
+                + selected["model_message"]
+            )
         else:
             match = next(
                 (m for m in matches if str(m["id"]) == selected_match),
@@ -287,8 +306,8 @@ def avax_v8_panel():
     return render_template_string(
         PAGE_V8,
         leagues=leagues,
-        supported=MODEL_SELECTIONS,
         selected_league=league,
+        selected_capability=selected,
         selected_match=selected_match,
         matches=matches,
         list_error=list_error,

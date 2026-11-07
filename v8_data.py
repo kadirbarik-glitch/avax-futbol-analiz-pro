@@ -37,11 +37,11 @@ MARKET_NAMES = {
 }
 
 
-def league_history(league, kickoff):
+def competition_history(league, kickoff):
     league = str(league).upper()
 
-    if league not in MODEL_SELECTIONS:
-        raise ValueError("Desteklenmeyen lig")
+    if not league.isalnum() or not 2 <= len(league) <= 8:
+        raise ValueError("Gecersiz lig kodu")
 
     cutoff = parse_date(kickoff)
 
@@ -77,6 +77,49 @@ def league_history(league, kickoff):
     ]
 
     return history
+
+
+def league_history(league, kickoff):
+    league = str(league).upper()
+
+    if league not in MODEL_SELECTIONS:
+        raise ValueError("Desteklenmeyen lig")
+
+    return competition_history(league, kickoff)
+
+
+def competition_readiness(league, kickoff):
+    """Check raw season coverage without granting model eligibility."""
+
+    try:
+        history = competition_history(league, kickoff)
+    except (RuntimeError, ValueError) as exc:
+        return {
+            "status": "DATA_UNAVAILABLE",
+            "message": f"Lig verisi kontrol edilemedi: {exc}",
+            "matches": 0,
+        }
+
+    count = len(history)
+
+    if count < 20:
+        return {
+            "status": "INSUFFICIENT",
+            "message": (
+                "Bu sezon tahmin arastirmasi icin yeterli "
+                "tamamlanmis mac verisi yok."
+            ),
+            "matches": count,
+        }
+
+    return {
+        "status": "SUFFICIENT_FOR_RESEARCH",
+        "message": (
+            "Mevcut sezon veri kapsami arastirma icin yeterli "
+            "gorunuyor; model dogrulamasi hala zorunlu."
+        ),
+        "matches": count,
+    }
 
 
 def freshness_status(days):

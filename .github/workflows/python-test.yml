@@ -225,7 +225,9 @@ jobs:
             test_v82_live \
             test_v82_api_integration \
             test_v82_cache_controls \
-            test_v82_cl_parity_fixture
+            test_v82_cl_parity_fixture \
+            test_v83_league_catalog \
+            test_v83_dynamic_leagues
 
       - name: V8 model secimi ve performans testi
         env:
