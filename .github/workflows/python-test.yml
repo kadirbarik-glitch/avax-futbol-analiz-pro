@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - v3-gelistirme
+      - codex-v83-gelistirme
   pull_request:
     branches:
       - main
