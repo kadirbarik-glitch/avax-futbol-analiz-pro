@@ -9,6 +9,7 @@ python -m unittest -v test_v82_backtest_parity
 """
 
 import unittest
+import os
 from collections import Counter
 
 from backtest_v6 import evaluate as evaluate_v6
@@ -267,13 +268,26 @@ def compare_season(season):
 
 class StrictParityTests(unittest.TestCase):
 
+    def assert_real_cache(self, season):
+        try:
+            return load_matches(season)
+        except FileNotFoundError as exc:
+            if os.getenv("REQUIRE_CL_CACHE") == "1":
+                raise
+            self.skipTest(
+                f"Gercek CL cache yok: {exc}"
+            )
+
     def test_2023(self):
+        self.assert_real_cache("2023")
         compare_season("2023")
 
     def test_2024(self):
+        self.assert_real_cache("2024")
         compare_season("2024")
 
     def test_2025(self):
+        self.assert_real_cache("2025")
         compare_season("2025")
 
 

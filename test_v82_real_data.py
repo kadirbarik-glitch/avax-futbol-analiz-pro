@@ -10,6 +10,8 @@ Run:
 
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+import argparse
+import hashlib
 from pathlib import Path
 import json
 import sys
@@ -18,6 +20,7 @@ from backtest_v6 import valid
 
 SEASONS = ("2023", "2024", "2025")
 CACHE_DIR = Path("data_cache")
+MANIFEST_PATH = CACHE_DIR / "CL_manifest.json"
 
 
 def parse_date(value):
@@ -31,7 +34,29 @@ def parse_date(value):
     return date.astimezone(timezone.utc)
 
 
-def check_season(season):
+def load_manifest(required):
+    if not MANIFEST_PATH.exists():
+        if required:
+            raise RuntimeError(
+                f"Missing manifest: {MANIFEST_PATH}"
+            )
+        return None
+
+    with MANIFEST_PATH.open(encoding="utf-8") as file:
+        manifest = json.load(file)
+
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or manifest.get("competition") != "CL"
+        or set(manifest.get("seasons", {})) != set(SEASONS)
+    ):
+        raise ValueError("Invalid CL cache manifest")
+
+    return manifest
+
+
+def check_season(season, manifest):
     path = CACHE_DIR / f"CL_{season}.json"
 
     if not path.exists():
@@ -39,16 +64,28 @@ def check_season(season):
             f"Missing cache: {path}"
         )
 
-    with path.open(encoding="utf-8") as file:
-        raw = json.load(file)
+    raw_bytes = path.read_bytes()
+    raw = json.loads(raw_bytes)
 
     if not isinstance(raw, list):
         raise ValueError("Invalid cache format")
+
+    if manifest:
+        entry = manifest["seasons"][season]
+        if entry.get("file") != path.name:
+            raise ValueError("Manifest file mismatch")
+        if entry.get("sha256") != hashlib.sha256(raw_bytes).hexdigest():
+            raise ValueError("Cache checksum mismatch")
+        if entry.get("raw_matches") != len(raw):
+            raise ValueError("Manifest raw match count mismatch")
 
     matches = valid(raw)
 
     if not matches:
         raise ValueError("No valid matches")
+
+    if manifest and entry.get("valid_matches") != len(matches):
+        raise ValueError("Manifest valid match count mismatch")
 
     errors = []
     warnings = []
@@ -174,11 +211,25 @@ def check_season(season):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--require-manifest",
+        action="store_true",
+        help="CL cache provenance manifestini zorunlu kilar.",
+    )
+    args = parser.parse_args()
+
     failures = []
+
+    try:
+        manifest = load_manifest(args.require_manifest)
+    except (RuntimeError, ValueError, OSError) as exc:
+        print(f"MANIFEST: FAIL: {exc}")
+        sys.exit(1)
 
     for season in SEASONS:
         try:
-            check_season(season)
+            check_season(season, manifest)
         except (
             RuntimeError,
             ValueError,

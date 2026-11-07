@@ -13,6 +13,8 @@ Calistirma:
 
 from collections import Counter
 from datetime import datetime, timezone
+import argparse
+import hashlib
 from pathlib import Path
 import json
 import os
@@ -25,10 +27,11 @@ SEASONS = ("2023", "2024", "2025")
 CACHE_DIR = Path("data_cache")
 REQUEST_INTERVAL = 7
 MIN_TEAM_MATCHES = 3
+MANIFEST_NAME = "CL_manifest.json"
 
 
-def load_season(season):
-    """Onbellekten oku veya API'den indir."""
+def load_season(season, allow_download):
+    """Load validated cache; download only when explicitly allowed."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = CACHE_DIR / f"{CODE}_{season}.json"
 
@@ -37,11 +40,13 @@ def load_season(season):
             with path.open(encoding="utf-8") as f:
                 raw = json.load(f)
 
-            if not isinstance(raw, list):
+            matches = valid(raw) if isinstance(raw, list) else []
+
+            if not matches:
                 raise ValueError("Gecersiz onbellek")
 
             print(f"{season}: CACHE HIT", flush=True)
-            return valid(raw), False
+            return matches, False
 
         except (OSError, ValueError, TypeError, KeyError):
             print(
@@ -50,6 +55,12 @@ def load_season(season):
                 flush=True,
             )
 
+    if not allow_download:
+        raise RuntimeError(
+            f"Eksik veya gecersiz cache: {path}. "
+            "Indirmek icin --download kullanin."
+        )
+
     if not os.getenv("FOOTBALL_DATA_API_KEY"):
         raise RuntimeError(
             "FOOTBALL_DATA_API_KEY gerekli"
@@ -57,6 +68,9 @@ def load_season(season):
 
     raw = fetch(CODE, season)
     matches = valid(raw)
+
+    if not matches:
+        raise ValueError(f"API gecerli mac dondurmedi: {season}")
 
     temporary = path.with_suffix(".tmp")
 
@@ -71,6 +85,45 @@ def load_season(season):
     )
 
     return matches, True
+
+
+def write_manifest():
+    """Record cache provenance without storing credentials."""
+
+    seasons = {}
+
+    for season in SEASONS:
+        path = CACHE_DIR / f"{CODE}_{season}.json"
+        raw_bytes = path.read_bytes()
+        raw = json.loads(raw_bytes)
+        matches = valid(raw) if isinstance(raw, list) else []
+
+        if not matches:
+            raise ValueError(
+                f"Manifest icin gecersiz cache: {path}"
+            )
+
+        seasons[season] = {
+            "file": path.name,
+            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "raw_matches": len(raw),
+            "valid_matches": len(matches),
+        }
+
+    manifest = {
+        "schema_version": 1,
+        "competition": CODE,
+        "source": "football-data.org/v4",
+        "verified_at_utc": datetime.now(timezone.utc).isoformat(),
+        "seasons": seasons,
+    }
+
+    temporary = CACHE_DIR / f"{MANIFEST_NAME}.tmp"
+    temporary.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    temporary.replace(CACHE_DIR / MANIFEST_NAME)
 
 
 def inspect_season(season, matches):
@@ -215,6 +268,16 @@ def inspect_season(season, matches):
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="CL cache research; downloads require --download."
+    )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Eksik veya gecersiz sezonlari API'den indir.",
+    )
+    args = parser.parse_args()
+
     print("AVAX V8.2 - Veri kalite arastirmasi")
     print("Lig: UEFA Champions League")
     print("Sezonlar:", ", ".join(SEASONS))
@@ -235,7 +298,7 @@ def main():
                 time.sleep(REQUEST_INTERVAL)
 
             matches, downloaded = load_season(
-                season
+                season, args.download
             )
 
             last_request = downloaded
@@ -264,6 +327,11 @@ def main():
             ", ".join(failures),
         )
         raise SystemExit(1)
+
+    write_manifest()
+    print(
+        f"Manifest yazildi: {CACHE_DIR / MANIFEST_NAME}"
+    )
 
     print(
         "Sonraki asama: V6/V7 model "

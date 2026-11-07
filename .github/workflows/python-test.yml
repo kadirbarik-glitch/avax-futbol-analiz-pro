@@ -184,7 +184,7 @@ jobs:
               "Gelecek mac sonucu hesaplamaya sizdi"
           )
 
-          for league in ("PL", "PD", "SA", "BL1", "FL1"):
+          for league in ("PL", "PD", "SA", "BL1", "FL1", "CL"):
               result = predict(
                   league, 1, 7, cutoff, matches
               )
@@ -217,6 +217,15 @@ jobs:
 
       - name: V8 veri baglantisi cevrimdisi testi
         run: python -m unittest -v test_v8_data.py
+
+      - name: CL cevrimdisi motor ve parite testleri
+        run: |
+          python -m unittest -v \
+            test_v82_integrity \
+            test_v82_live \
+            test_v82_api_integration \
+            test_v82_cache_controls \
+            test_v82_cl_parity_fixture
 
       - name: V8 model secimi ve performans testi
         env:

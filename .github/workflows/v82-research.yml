@@ -2,6 +2,12 @@ name: AVAX V8.2 Champions League Research
 
 on:
   workflow_dispatch:
+    inputs:
+      download:
+        description: 'Eksik CL cache sezonlarini API ile indir'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,19 +65,26 @@ jobs:
       - name: Sampiyonlar Ligi veri arastirmasi
         env:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
-        run: python backtest_v82.py
+        run: |
+          if [ "${{ inputs.download }}" = "true" ]; then
+            python backtest_v82.py --download
+          else
+            python backtest_v82.py
+          fi
 
       - name: V8.2 gercek veri guvenilirlik testi
-        run: python test_v82_real_data.py
+        run: python test_v82_real_data.py --require-manifest
 
       - name: V8.2 model karsilastirmasi
         run: python backtest_v82_models.py
 
       - name: V8.2 backtest canli motor uyum testi
+        env:
+          REQUIRE_CL_CACHE: '1'
         run: python -m unittest -v test_v82_backtest_parity
 
       - name: Verileri onbellege kaydet
-        if: always()
+        if: success()
         uses: actions/cache/save@v4
         with:
           path: data_cache
