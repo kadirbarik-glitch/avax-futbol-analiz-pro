@@ -246,3 +246,5 @@ jobs:
         run: |
           python -c "import os,urllib.request,json; token=os.environ.get('FOOTBALL_DATA_API_KEY',''); assert token, 'API key missing'; req=urllib.request.Request('https://api.football-data.org/v4/competitions',headers={'X-Auth-Token':token}); data=json.load(urllib.request.urlopen(req,timeout=20)); leagues=data.get('competitions',[]); found=[x for x in leagues if (x.get('area') or {}).get('code') in ('TUR','TR') or 'turkey' in str((x.get('area') or {}).get('name','')).lower() or 'super lig' in str(x.get('name','')).lower()]; print('Turkish competitions:',[(x.get('code'),x.get('name')) for x in found]); print('RESULT:', 'VISIBLE' if found else 'NOT_LISTED')"
 
+      - name: AVAX V8.4 veri saglayici testleri
+        run: python -m unittest -v test_v84_data_providers
