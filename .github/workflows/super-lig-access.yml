@@ -15,7 +15,6 @@ jobs:
         env:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
-          python - &lt;&lt;'PY'
           python - <<'PY'
           import os
           import urllib.request
