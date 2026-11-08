@@ -1,0 +1,40 @@
+name: AVAX V8.4 Super Lig Historical Import
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  import-superlig:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout development code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check importer syntax
+        run: python -m py_compile v84_data_providers.py v84_superlig_import.py
+
+      - name: Import Super Lig historical matches
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: python v84_superlig_import.py
+
+      - name: Validate imported seasons
+        run: |
+          python -c "import json,pathlib; seasons=(2022,2023,2024); root=pathlib.Path('data_cache/superlig_v84'); data=[json.loads((root/('superlig_'+str(y)+'.json')).read_text(encoding='utf-8')) for y in seasons]; counts=[len(d['matches']) for d in data]; assert all(c>0 for c in counts), 'Empty season'; assert all(d['season']==y for d,y in zip(data,seasons)), 'Wrong season'; print('Completed match counts:',dict(zip(seasons,counts))); print('TOTAL:',sum(counts))"
+
+      - name: Upload historical data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: avax-v84-superlig-historical
+          path: data_cache/superlig_v84/*.json
+          retention-days: 7
+          if-no-files-found: error
