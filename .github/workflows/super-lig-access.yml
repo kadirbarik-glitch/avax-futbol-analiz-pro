@@ -14,51 +14,48 @@ jobs:
       - name: Check Turkish competitions
         env:
           FOOTBALL_DATA_API_KEY: $&#123;&#123; secrets.FOOTBALL_DATA_API_KEY &#125;&#125;
-        shell: bash
         run: |
           python - &lt;&lt;'PY'
           import json
           import os
-          import urllib.error
           import urllib.request
+          import urllib.error
 
           token = os.environ.get('FOOTBALL_DATA_API_KEY', '').strip()
           if not token:
-              raise SystemExit('ERROR: API secret is missing')
+              raise SystemExit('API secret missing')
 
-          req = urllib.request.Request(
+          request = urllib.request.Request(
               'https://api.football-data.org/v4/competitions',
-              headers={'X-Auth-Token': token, 'Accept': 'application/json'},
+              headers={'X-Auth-Token': token},
           )
           try:
-              with urllib.request.urlopen(req, timeout=20) as response:
-                  payload = json.load(response)
-          except urllib.error.HTTPError as exc:
-              raise SystemExit(f'ERROR: API HTTP {exc.code}') from None
-          except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-              raise SystemExit(f'ERROR: API unavailable ({type(exc).__name__})') from None
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  data = json.load(response)
+          except urllib.error.HTTPError as error:
+              raise SystemExit('API HTTP status: ' + str(error.code))
+          except (urllib.error.URLError, TimeoutError, ValueError):
+              raise SystemExit('API request failed')
 
-          competitions = payload.get('competitions')
+          competitions = data.get('competitions', [])
           if not isinstance(competitions, list):
-              raise SystemExit('ERROR: Invalid catalogue')
+              raise SystemExit('Invalid API response')
 
-          matches = []
-          for item in competitions:
-              if not isinstance(item, dict):
-                  continue
-              area = item.get('area') or {}
-              code = str(area.get('code') or area.get('countryCode') or '').upper()
-              country = str(area.get('name') or '').casefold()
-              name = str(item.get('name') or '').casefold()
-              if code in ('TUR', 'TR') or country in ('turkey', 'türkiye') or 'süper lig' in name or 'super lig' in name:
-                  matches.append((item.get('code'), item.get('name')))
+          found = []
+          for competition in competitions:
+              area = competition.get('area') or {}
+              country = str(area.get('name', '')).casefold()
+              code = str(area.get('code', '')).upper()
+              name = str(competition.get('name', '')).casefold()
+              if code in ('TUR', 'TR') or country in ('turkey', 'türkiye') or 'super lig' in name or 'süper lig' in name:
+                  found.append(competition)
 
-          print(f'Accessible competitions: {len(competitions)}')
-          if matches:
-              for code, name in matches:
-                  print(f'TURKISH COMPETITION: {code} - {name}')
+          print('Accessible competition count:', len(competitions))
+          if found:
               print('RESULT: TURKISH_COMPETITION_VISIBLE')
+              for competition in found:
+                  print('Competition:', competition.get('code'), competition.get('name'))
           else:
               print('RESULT: TURKISH_COMPETITION_NOT_LISTED')
-          print('NOTE: Listing does not validate prediction models.')
+          print('Model validation not performed')
           PY
