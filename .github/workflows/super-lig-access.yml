@@ -1,0 +1,64 @@
+name: AVAX Super Lig API Access Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  super-lig-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Turkish competitions
+        env:
+          FOOTBALL_DATA_API_KEY: $&#123;&#123; secrets.FOOTBALL_DATA_API_KEY &#125;&#125;
+        shell: bash
+        run: |
+          python - &lt;&lt;'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get('FOOTBALL_DATA_API_KEY', '').strip()
+          if not token:
+              raise SystemExit('ERROR: API secret is missing')
+
+          req = urllib.request.Request(
+              'https://api.football-data.org/v4/competitions',
+              headers={'X-Auth-Token': token, 'Accept': 'application/json'},
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  payload = json.load(response)
+          except urllib.error.HTTPError as exc:
+              raise SystemExit(f'ERROR: API HTTP {exc.code}') from None
+          except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+              raise SystemExit(f'ERROR: API unavailable ({type(exc).__name__})') from None
+
+          competitions = payload.get('competitions')
+          if not isinstance(competitions, list):
+              raise SystemExit('ERROR: Invalid catalogue')
+
+          matches = []
+          for item in competitions:
+              if not isinstance(item, dict):
+                  continue
+              area = item.get('area') or {}
+              code = str(area.get('code') or area.get('countryCode') or '').upper()
+              country = str(area.get('name') or '').casefold()
+              name = str(item.get('name') or '').casefold()
+              if code in ('TUR', 'TR') or country in ('turkey', 'türkiye') or 'süper lig' in name or 'super lig' in name:
+                  matches.append((item.get('code'), item.get('name')))
+
+          print(f'Accessible competitions: {len(competitions)}')
+          if matches:
+              for code, name in matches:
+                  print(f'TURKISH COMPETITION: {code} - {name}')
+              print('RESULT: TURKISH_COMPETITION_VISIBLE')
+          else:
+              print('RESULT: TURKISH_COMPETITION_NOT_LISTED')
+          print('NOTE: Listing does not validate prediction models.')
+          PY
