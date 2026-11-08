@@ -248,3 +248,17 @@ jobs:
 
       - name: AVAX V8.4 veri saglayici testleri
         run: python -m unittest -v test_v84_data_providers
+      - name: AVAX V8.4 Super Lig historical import
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: python v84_superlig_import.py
+
+      - name: Save Super Lig historical data
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: avax-v84-superlig-historical
+          path: data_cache/superlig_v84/*.json
+          retention-days: 7
+          if-no-files-found: error
