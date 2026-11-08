@@ -13,10 +13,10 @@ jobs:
     steps:
       - name: Check Turkish competitions
         env:
-          FOOTBALL_DATA_API_KEY: $&#123;&#123; secrets.FOOTBALL_DATA_API_KEY &#125;&#125;
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           python - &lt;&lt;'PY'
-          import json
+          python - <<'PY'
           import os
           import urllib.request
           import urllib.error
