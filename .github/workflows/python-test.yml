@@ -1,4 +1,3 @@
-
 name: AVAX V8 Test
 
 on:
@@ -51,15 +50,14 @@ jobs:
             v8_models.py v8_live_engine.py v8_data.py \
             test_v8_data.py \
             backtest_v6.py backtest_v7.py \
-            backtest_v73.py backtest_v8.py
+            backtest_v73.py backtest_v8.py \
+            v84_data_providers.py v84_superlig_import.py
 
       - name: V8 model secimlerini kontrol et
         run: |
           python - <<'PY'
-          from v8_models import (
-              MODEL_SELECTIONS, MARKETS,
-              get_model, get_league_models
-          )
+          from v8_models import MODEL_SELECTIONS, MARKETS
+          from v8_models import get_model, get_league_models
           from backtest_v7 import CONFIGS
 
           expected_leagues = {
@@ -240,6 +238,7 @@ jobs:
         with:
           path: data_cache
           key: avax-v73-data-${{ runner.os }}-${{ hashFiles('backtest_v73.py') }}-${{ github.run_id }}
+
       - name: Turkiye Super Lig API erisim testi
         env:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
@@ -248,14 +247,21 @@ jobs:
 
       - name: AVAX V8.4 veri saglayici testleri
         run: python -m unittest -v test_v84_data_providers
+
       - name: AVAX V8.4 Super Lig historical import
-        if: github.event_name == 'workflow_dispatch'
+        if: |
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex-v83-gelistirme' &&
+          github.event.head_commit.message == 'AVAX-V84-IMPORT-ONCE'
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: python v84_superlig_import.py
 
       - name: Save Super Lig historical data
-        if: github.event_name == 'workflow_dispatch'
+        if: |
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex-v83-gelistirme' &&
+          github.event.head_commit.message == 'AVAX-V84-IMPORT-ONCE'
         uses: actions/upload-artifact@v4
         with:
           name: avax-v84-superlig-historical
