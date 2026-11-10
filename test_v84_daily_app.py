@@ -8,6 +8,7 @@ from datetime import date
 from unittest.mock import patch
 
 from v84_daily_app import app
+from v84_daily_fixtures import DailyFixtureError
 
 
 def sample_match():
@@ -30,6 +31,7 @@ class DailyAppTests(unittest.TestCase):
 
     def setUp(self):
         self.client = app.test_client()
+
         self.today_patch = patch(
             "v84_daily_app.today_turkey",
             return_value=date(2026, 11, 10),
@@ -48,14 +50,8 @@ class DailyAppTests(unittest.TestCase):
             response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            b"AVAX FUTBOL ANAL",
-            response.data,
-        )
-        self.assertIn(
-            b"Galatasaray",
-            response.data,
-        )
+        self.assertIn(b"AVAX FUTBOL ANAL", response.data)
+        self.assertIn(b"Galatasaray", response.data)
 
     def test_country_filter(self):
         other = {
@@ -63,6 +59,8 @@ class DailyAppTests(unittest.TestCase):
             "match_id": "999",
             "country": "Germany",
             "league": "Bundesliga",
+            "home_team": "Bayern Munich",
+            "away_team": "Dortmund",
         }
 
         with patch(
@@ -72,25 +70,20 @@ class DailyAppTests(unittest.TestCase):
                 "matches": [sample_match(), other],
             },
         ):
-            response = self.client.get(
-                "/?country=Turkey"
-            )
+            response = self.client.get("/?country=Turkey")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            b"Galatasaray",
-            response.data,
-        )
-        self.assertNotIn(
-            b"Bundesliga",
-            response.data,
-        )
+        self.assertIn(b"Galatasaray", response.data)
+        self.assertNotIn(b"Bayern Munich", response.data)
+        self.assertNotIn(b"Dortmund", response.data)
 
     def test_league_filter(self):
         other = {
             **sample_match(),
             "match_id": "998",
             "league": "Turkish Cup",
+            "home_team": "Besiktas",
+            "away_team": "Trabzonspor",
         }
 
         with patch(
@@ -105,14 +98,15 @@ class DailyAppTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            b"Super Lig",
-            response.data,
-        )
-        self.assertNotIn(
-            b"Turkish Cup",
-            response.data,
-        )
+
+        # Selected league match must be displayed.
+        self.assertIn(b"Galatasaray", response.data)
+        self.assertIn(b"Fenerbahce", response.data)
+
+        # Other league matches must be excluded.
+        # Their league names can remain in filter options.
+        self.assertNotIn(b"Besiktas", response.data)
+        self.assertNotIn(b"Trabzonspor", response.data)
 
     def test_invalid_date_warning(self):
         response = self.client.get(
@@ -142,8 +136,6 @@ class DailyAppTests(unittest.TestCase):
         )
 
     def test_api_error_is_displayed(self):
-        from v84_daily_fixtures import DailyFixtureError
-
         with patch(
             "v84_daily_app.get_daily_fixtures",
             side_effect=DailyFixtureError(
@@ -153,10 +145,7 @@ class DailyAppTests(unittest.TestCase):
             response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            b"API unavailable",
-            response.data,
-        )
+        self.assertIn(b"API unavailable", response.data)
 
 
 if __name__ == "__main__":
