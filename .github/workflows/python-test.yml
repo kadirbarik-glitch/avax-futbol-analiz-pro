@@ -1,3 +1,4 @@
+
 name: AVAX V8 Test
 
 on:
@@ -51,7 +52,8 @@ jobs:
             test_v8_data.py \
             backtest_v6.py backtest_v7.py \
             backtest_v73.py backtest_v8.py \
-            v84_data_providers.py v84_superlig_import.py
+            v84_data_providers.py v84_superlig_import.py \
+            v84_daily_fixtures.py test_v84_daily_fixtures.py
 
       - name: V8 model secimlerini kontrol et
         run: |
@@ -245,8 +247,11 @@ jobs:
         run: |
           python -c "import os,urllib.request,json; token=os.environ.get('FOOTBALL_DATA_API_KEY',''); assert token, 'API key missing'; req=urllib.request.Request('https://api.football-data.org/v4/competitions',headers={'X-Auth-Token':token}); data=json.load(urllib.request.urlopen(req,timeout=20)); leagues=data.get('competitions',[]); found=[x for x in leagues if (x.get('area') or {}).get('code') in ('TUR','TR') or 'turkey' in str((x.get('area') or {}).get('name','')).lower() or 'super lig' in str(x.get('name','')).lower()]; print('Turkish competitions:',[(x.get('code'),x.get('name')) for x in found]); print('RESULT:', 'VISIBLE' if found else 'NOT_LISTED')"
 
-      - name: AVAX V8.4 veri saglayici testleri
-        run: python -m unittest -v test_v84_data_providers
+      - name: AVAX V8.4 veri saglayici ve gunluk mac testleri
+        run: |
+          python -m unittest -v \
+            test_v84_data_providers \
+            test_v84_daily_fixtures
 
       - name: AVAX V8.4 Super Lig historical import
         if: |
