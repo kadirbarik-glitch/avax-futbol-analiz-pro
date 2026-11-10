@@ -1,0 +1,34 @@
+
+name: AVAX V8.4 Daily Live Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  daily-live-check:
+    if: github.ref == 'refs/heads/codex-v83-gelistirme'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python dosyalarini kontrol et
+        run: |
+          python -m py_compile \
+            v84_daily_fixtures.py \
+            v84_daily_live_check.py
+
+      - name: Gercek gunluk maclari kontrol et
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: python v84_daily_live_check.py
