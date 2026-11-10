@@ -53,7 +53,9 @@ jobs:
             backtest_v6.py backtest_v7.py \
             backtest_v73.py backtest_v8.py \
             v84_data_providers.py v84_superlig_import.py \
-            v84_daily_fixtures.py test_v84_daily_fixtures.py
+            v84_daily_fixtures.py \
+            test_v84_daily_fixtures.py \
+            v84_daily_live_check.py
 
       - name: V8 model secimlerini kontrol et
         run: |
@@ -273,3 +275,12 @@ jobs:
           path: data_cache/superlig_v84/*.json
           retention-days: 7
           if-no-files-found: error
+
+      - name: AVAX V8.4 Daily Live Once
+        if: |
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex-v83-gelistirme' &&
+          github.event.head_commit.message == 'AVAX-V84-DAILY-LIVE-ONCE'
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: python v84_daily_live_check.py
