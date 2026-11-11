@@ -1,7 +1,7 @@
 
 """AVAX V8.4 - Team Mapping Safety Tests.
 
-Offline tests only.
+18 offline safety tests.
 No external API requests or deployment.
 """
 
@@ -92,12 +92,17 @@ class TeamMappingTests(unittest.TestCase):
             resolve_league(999)
 
     def test_unverified_league_rejected(self):
-        self.leagues[39] = LeagueMapping(
-            39, "PL", verified=False
-        )
-
-        with self.assertRaises(MappingError):
-            resolve_league(39)
+        with patch.dict(
+            "v84_team_mapping.LEAGUE_MAPPINGS",
+            {
+                39: LeagueMapping(
+                    39, "PL", verified=False
+                )
+            },
+            clear=True,
+        ):
+            with self.assertRaises(MappingError):
+                resolve_league(39)
 
     def test_verified_team_resolves(self):
         self.assertEqual(
@@ -109,12 +114,17 @@ class TeamMappingTests(unittest.TestCase):
             resolve_team(999, "PL")
 
     def test_unverified_team_rejected(self):
-        self.teams[("PL", 100)] = TeamMapping(
-            100, 200, "PL", verified=False
-        )
-
-        with self.assertRaises(MappingError):
-            resolve_team(100, "PL")
+        with patch.dict(
+            "v84_team_mapping.TEAM_MAPPINGS",
+            {
+                ("PL", 100): TeamMapping(
+                    100, 200, "PL", verified=False
+                )
+            },
+            clear=True,
+        ):
+            with self.assertRaises(MappingError):
+                resolve_team(100, "PL")
 
     def test_wrong_league_rejected(self):
         with self.assertRaises(MappingError):
