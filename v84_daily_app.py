@@ -1,11 +1,12 @@
 """AVAX V8.4 - Daily Match Center.
 
 Standalone development application.
-Groups fixtures by match status.
-No changes to the live V8.3 prediction engine.
+Groups matches by status and checks kickoff safety.
+Does not modify live V8.3.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from flask import Flask, render_template_string, request
 
@@ -17,6 +18,8 @@ from v84_daily_fixtures import (
 )
 
 app = Flask(__name__)
+
+TR_TZ = ZoneInfo("Europe/Istanbul")
 
 NOT_STARTED = {"NS", "TBD"}
 LIVE = {"1H", "HT", "2H", "ET", "BT", "P", "INT", "LIVE"}
@@ -32,7 +35,6 @@ PAGE = """
 <title>AVAX V8.4 - Günlük Maç Merkezi</title>
 <style>
 * { box-sizing: border-box; }
-
 body {
   margin: 0;
   background: #0f172a;
@@ -148,7 +150,6 @@ button {
 }
 .section-title {
   margin-top: 28px;
-  color: #f8fafc;
   font-size: 21px;
 }
 .analysis-button {
@@ -196,14 +197,12 @@ erişilebilir futbol karşılaşmaları.
 <div class="panel">
 <form method="get" action="/">
 <div class="filters">
-
 <div>
 <label for="date">Maç tarihi</label>
 <input id="date" type="date" name="date"
        value="{{ selected }}" min="{{ today }}"
        max="{{ max_date }}">
 </div>
-
 <div>
 <label for="country">Ülke</label>
 <select id="country" name="country">
@@ -216,7 +215,6 @@ erişilebilir futbol karşılaşmaları.
 {% endfor %}
 </select>
 </div>
-
 <div>
 <label for="league">Lig</label>
 <select id="league" name="league">
@@ -230,7 +228,6 @@ erişilebilir futbol karşılaşmaları.
 </select>
 </div>
 </div>
-
 <div style="margin-top:15px">
 <button type="submit">MAÇLARI GÖSTER</button>
 </div>
@@ -268,7 +265,6 @@ erişilebilir futbol karşılaşmaları.
 <h3 class="section-title">
 🟢 Başlamamış maçlar ({{ upcoming|length }})
 </h3>
-
 {% for match in upcoming %}
 <div class="match">
 <div class="match-header">
@@ -285,19 +281,42 @@ erişilebilir futbol karşılaşmaları.
 ANALİZ ET — HAZIRLANIYOR
 </button>
 <div class="notice">
-Bu maç için geçmiş veri yeterliliği henüz
-doğrulanmadı. Tahmin motoru bağlanınca
-analiz kullanılabilecek.
+Geçmiş veri yeterliliği doğrulanmadı.
+Tahmin motoru henüz bağlı değil.
 </div>
 </div>
 {% else %}
 <div class="empty">Başlamamış maç bulunamadı.</div>
 {% endfor %}
 
+{% if stale %}
+<h3 class="section-title">
+⚠️ Başlangıç saati geçmiş, durum doğrulanmamış
+({{ stale|length }})
+</h3>
+{% for match in stale %}
+<div class="match">
+<div class="match-header">
+{{ match.country }} / {{ match.league }}
+</div>
+<div class="teams">
+{{ match.home_team }} - {{ match.away_team }}
+</div>
+<div class="time">
+{{ match.kickoff_tr[11:16] }} (Türkiye saati)
+</div>
+<div class="notice">
+Planlanan başlangıç saati geçti.
+API hâlâ {{ match.status }} bildiriyor.
+Analiz için uygun değil.
+</div>
+</div>
+{% endfor %}
+{% endif %}
+
 <h3 class="section-title">
 🔴 Canlı maçlar ({{ live|length }})
 </h3>
-
 {% for match in live %}
 <div class="match">
 <div class="match-header">
@@ -318,7 +337,6 @@ analiz kullanılabilecek.
 <h3 class="section-title">
 ⚪ Bitmiş maçlar ({{ finished|length }})
 </h3>
-
 {% for match in finished %}
 <div class="match">
 <div class="match-header">
@@ -339,7 +357,6 @@ analiz kullanılabilecek.
 <h3 class="section-title">
 🟠 Ertelenmiş / iptal / hükmen ({{ postponed|length }})
 </h3>
-
 {% for match in postponed %}
 <div class="match">
 <div class="match-header">
@@ -380,8 +397,9 @@ Diğer durumlar ({{ other|length }})
 
 <footer>
 V8.4 geliştirme sürümü.
-Maç listesi API-Football verilerine bağlıdır.
-Tüm organizasyonların kapsandığı garanti edilmez.
+API verileri gecikebilir.
+Geçmiş saatli ve doğrulanmamış maçlar
+analiz listesine dahil edilmez.
 Analiz butonları henüz aktif değildir.
 </footer>
 </div>
@@ -400,6 +418,32 @@ def classify_match(status):
     if status in POSTPONED:
         return "postponed"
     return "other"
+
+
+def kickoff_is_past(match, now=None):
+    """Return True if scheduled kickoff has passed.
+
+    Missing or invalid dates are treated as unsafe.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    try:
+        raw = match["kickoff_tr"]
+        kickoff = datetime.fromisoformat(
+            raw.replace("Z", "+00:00")
+        )
+
+        if kickoff.tzinfo is None:
+            return True
+
+        if now.tzinfo is None:
+            return True
+
+        return kickoff <= now
+
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return True
 
 
 @app.route("/")
@@ -465,22 +509,31 @@ def daily_home():
 
     groups = {
         "upcoming": [],
+        "stale": [],
         "live": [],
         "finished": [],
         "postponed": [],
         "other": [],
     }
 
+    now = datetime.now(timezone.utc)
+
     for match in matches:
         category = classify_match(
             match.get("status", "")
         )
-        groups[category].append(match)
+
+        if (
+            category == "upcoming"
+            and kickoff_is_past(match, now)
+        ):
+            groups["stale"].append(match)
+        else:
+            groups[category].append(match)
 
     country_count = len({
         m["country"] for m in matches
     })
-
     league_count = len({
         (m["country"], m["league"])
         for m in matches
@@ -501,6 +554,7 @@ def daily_home():
         country_count=country_count,
         league_count=league_count,
         upcoming=groups["upcoming"],
+        stale=groups["stale"],
         live=groups["live"],
         finished=groups["finished"],
         postponed=groups["postponed"],
