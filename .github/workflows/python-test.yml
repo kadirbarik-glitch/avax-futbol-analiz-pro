@@ -274,6 +274,87 @@ jobs:
             test_v84_mapping_verifier \
             test_v84_provider_identity_check
 
+      - name: AVAX V8.4 Premier League identity check once
+        if: |
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex-v83-gelistirme' &&
+          github.event.head_commit.message == 'AVAX-V84-IDENTITY-ONCE'
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: |
+          mkdir -p reports
+          python - <<'PY'
+          import json
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+          from v84_provider_identity_check import (
+              build_identity_report,
+          )
+
+          today = datetime.now(
+              ZoneInfo("Europe/Istanbul")
+          )
+          season = (
+              today.year if today.month >= 7
+              else today.year - 1
+          )
+
+          report = build_identity_report(
+              season,
+              minimum_similarity=0.60,
+          )
+
+          if report["source_count"] == 0:
+              raise SystemExit(
+                  "API-Football returned no teams"
+              )
+
+          if report["target_count"] == 0:
+              raise SystemExit(
+                  "football-data returned no teams"
+              )
+
+          if (
+              report["verified_mappings"] != 0
+              or report["auto_activated"]
+          ):
+              raise SystemExit(
+                  "Unsafe automatic mapping activation"
+              )
+
+          path = Path(
+              "reports/v84_premier_league_identity.json"
+          )
+          path.write_text(
+              json.dumps(
+                  report,
+                  ensure_ascii=False,
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+
+          print("Season:", season)
+          print("Source teams:", report["source_count"])
+          print("Target teams:", report["target_count"])
+          print("Report saved:", path)
+          print("No mappings activated")
+          PY
+
+      - name: Save V8.4 Premier League identity report
+        if: |
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex-v83-gelistirme' &&
+          github.event.head_commit.message == 'AVAX-V84-IDENTITY-ONCE'
+        uses: actions/upload-artifact@v4
+        with:
+          name: avax-v84-premier-league-identity
+          path: reports/v84_premier_league_identity.json
+          retention-days: 7
+          if-no-files-found: error
+
       - name: AVAX V8.4 Super Lig historical import
         if: |
           github.event_name == 'push' &&
