@@ -1,29 +1,37 @@
 """AVAX V8.4 - Daily Match Center UI tests.
 
-Offline Flask tests. No API requests or live deployment.
+Offline Flask tests.
+No real API requests or deployment.
 """
 
 import unittest
 from datetime import date
 from unittest.mock import patch
 
-from v84_daily_app import app
+from v84_daily_app import app, classify_match
 from v84_daily_fixtures import DailyFixtureError
 
 
-def sample_match():
+def sample_match(
+    match_id="12345",
+    status="NS",
+    league="Super Lig",
+    country="Turkey",
+    home="Galatasaray",
+    away="Fenerbahce",
+):
     return {
-        "match_id": "12345",
+        "match_id": match_id,
         "date_tr": "2026-11-10",
         "kickoff_tr": "2026-11-10T20:00:00+03:00",
         "league_id": 203,
-        "league": "Super Lig",
-        "country": "Turkey",
+        "league": league,
+        "country": country,
         "home_team_id": "10",
-        "home_team": "Galatasaray",
+        "home_team": home,
         "away_team_id": "20",
-        "away_team": "Fenerbahce",
-        "status": "NS",
+        "away_team": away,
+        "status": status,
     }
 
 
@@ -31,7 +39,6 @@ class DailyAppTests(unittest.TestCase):
 
     def setUp(self):
         self.client = app.test_client()
-
         self.today_patch = patch(
             "v84_daily_app.today_turkey",
             return_value=date(2026, 11, 10),
@@ -39,38 +46,36 @@ class DailyAppTests(unittest.TestCase):
         self.today_patch.start()
         self.addCleanup(self.today_patch.stop)
 
-    def test_home_page_opens(self):
+    def get_page(self, matches, query="/"):
         with patch(
             "v84_daily_app.get_daily_fixtures",
             return_value={
                 "date": "2026-11-10",
-                "matches": [sample_match()],
+                "matches": matches,
             },
         ):
-            response = self.client.get("/")
+            return self.client.get(query)
+
+    def test_home_page_opens(self):
+        response = self.get_page([sample_match()])
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"AVAX FUTBOL ANAL", response.data)
         self.assertIn(b"Galatasaray", response.data)
 
     def test_country_filter(self):
-        other = {
-            **sample_match(),
-            "match_id": "999",
-            "country": "Germany",
-            "league": "Bundesliga",
-            "home_team": "Bayern Munich",
-            "away_team": "Dortmund",
-        }
+        other = sample_match(
+            match_id="999",
+            country="Germany",
+            league="Bundesliga",
+            home="Bayern Munich",
+            away="Dortmund",
+        )
 
-        with patch(
-            "v84_daily_app.get_daily_fixtures",
-            return_value={
-                "date": "2026-11-10",
-                "matches": [sample_match(), other],
-            },
-        ):
-            response = self.client.get("/?country=Turkey")
+        response = self.get_page(
+            [sample_match(), other],
+            "/?country=Turkey",
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Galatasaray", response.data)
@@ -78,33 +83,21 @@ class DailyAppTests(unittest.TestCase):
         self.assertNotIn(b"Dortmund", response.data)
 
     def test_league_filter(self):
-        other = {
-            **sample_match(),
-            "match_id": "998",
-            "league": "Turkish Cup",
-            "home_team": "Besiktas",
-            "away_team": "Trabzonspor",
-        }
+        other = sample_match(
+            match_id="998",
+            league="Turkish Cup",
+            home="Besiktas",
+            away="Trabzonspor",
+        )
 
-        with patch(
-            "v84_daily_app.get_daily_fixtures",
-            return_value={
-                "date": "2026-11-10",
-                "matches": [sample_match(), other],
-            },
-        ):
-            response = self.client.get(
-                "/?league=Super+Lig"
-            )
+        response = self.get_page(
+            [sample_match(), other],
+            "/?league=Super+Lig",
+        )
 
         self.assertEqual(response.status_code, 200)
-
-        # Selected league match must be displayed.
         self.assertIn(b"Galatasaray", response.data)
         self.assertIn(b"Fenerbahce", response.data)
-
-        # Other league matches must be excluded.
-        # Their league names can remain in filter options.
         self.assertNotIn(b"Besiktas", response.data)
         self.assertNotIn(b"Trabzonspor", response.data)
 
@@ -120,18 +113,11 @@ class DailyAppTests(unittest.TestCase):
         )
 
     def test_empty_match_list(self):
-        with patch(
-            "v84_daily_app.get_daily_fixtures",
-            return_value={
-                "date": "2026-11-10",
-                "matches": [],
-            },
-        ):
-            response = self.client.get("/")
+        response = self.get_page([])
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(
-            "gösterilecek maç bulunamadı".encode("utf-8"),
+            "Başlamamış maç bulunamadı".encode("utf-8"),
             response.data,
         )
 
@@ -146,6 +132,44 @@ class DailyAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"API unavailable", response.data)
+
+    def test_upcoming_status(self):
+        self.assertEqual(
+            classify_match("NS"), "upcoming"
+        )
+        self.assertEqual(
+            classify_match("TBD"), "upcoming"
+        )
+
+    def test_live_status(self):
+        for status in (
+            "1H", "HT", "2H", "ET", "BT", "P", "INT", "LIVE"
+        ):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    classify_match(status), "live"
+                )
+
+    def test_finished_status(self):
+        for status in ("FT", "AET", "PEN"):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    classify_match(status), "finished"
+                )
+
+    def test_postponed_status(self):
+        for status in (
+            "PST", "CANC", "ABD", "SUSP", "AWD", "WO"
+        ):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    classify_match(status), "postponed"
+                )
+
+    def test_unknown_status(self):
+        self.assertEqual(
+            classify_match("UNKNOWN"), "other"
+        )
 
 
 if __name__ == "__main__":
