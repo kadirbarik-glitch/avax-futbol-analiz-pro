@@ -2,14 +2,8 @@
 """AVAX V8.4 - Provider Identity Check.
 
 Read-only Premier League team identity comparison.
-
-Sources:
-- API-Football (API-Sports)
-- football-data.org
-
 Never automatically verifies or activates mappings.
-Does not modify existing mapping tables.
-Does not deploy or change live V8.3.
+Does not modify existing mapping tables or live V8.3.
 """
 
 import json
@@ -33,6 +27,17 @@ FOOTBALL_DATA_URL = (
     "/competitions/PL/teams"
 )
 
+SAFE_API_ERRORS = {
+    "token_missing": "API key is missing or invalid",
+    "token_invalid": "API key is missing or invalid",
+    "token_expired": "API key has expired",
+    "token_limit": "API request limit reached",
+    "rateLimit": "API rate limit reached",
+    "requests": "API request quota or limit error",
+    "access": "API access denied",
+    "plan": "API subscription or plan restriction",
+}
+
 
 class ProviderIdentityError(RuntimeError):
     """Provider request or response error."""
@@ -54,8 +59,7 @@ def fetch_json(url, headers):
 
     except urllib.error.HTTPError as error:
         raise ProviderIdentityError(
-            "Provider HTTP error: "
-            + str(error.code)
+            f"Provider HTTP error: {error.code}"
         ) from None
 
     except (
@@ -66,6 +70,43 @@ def fetch_json(url, headers):
         raise ProviderIdentityError(
             "Provider request failed"
         ) from None
+
+
+def safe_error_summary(errors):
+    """Summarize API errors without logging secrets."""
+
+    if not errors:
+        return "No API error details provided"
+
+    if isinstance(errors, dict):
+        messages = []
+        for key in errors:
+            messages.append(
+                SAFE_API_ERRORS.get(
+                    key,
+                    f"API error category: {key}"
+                    if key in (
+                        "token_missing",
+                        "token_invalid",
+                        "token_expired",
+                        "token_limit",
+                        "rateLimit",
+                        "requests",
+                        "access",
+                        "plan",
+                    )
+                    else "Unrecognized API error category",
+                )
+            )
+        return "; ".join(messages)
+
+    if isinstance(errors, list):
+        return (
+            "API returned an error list "
+            f"with {len(errors)} item(s)"
+        )
+
+    return "API returned an unexpected error format"
 
 
 def fetch_api_football_teams(season):
@@ -97,15 +138,26 @@ def fetch_api_football_teams(season):
         },
     )
 
-    if (
-        not isinstance(payload, dict)
-        or payload.get("errors")
-        or not isinstance(
-            payload.get("response"), list
+    if not isinstance(payload, dict):
+        raise ProviderIdentityError(
+            "Invalid API-Football response: "
+            "expected JSON object"
         )
+
+    errors = payload.get("errors")
+
+    if errors:
+        raise ProviderIdentityError(
+            "API-Football error: "
+            + safe_error_summary(errors)
+        )
+
+    if not isinstance(
+        payload.get("response"), list
     ):
         raise ProviderIdentityError(
-            "Invalid API-Football response"
+            "Invalid API-Football response: "
+            "response is not a list"
         )
 
     teams = []
