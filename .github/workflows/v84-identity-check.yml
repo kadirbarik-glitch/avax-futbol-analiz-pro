@@ -1,0 +1,139 @@
+
+name: AVAX V8.4 Premier League Identity Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity-check:
+    if: github.ref == 'refs/heads/codex-v83-gelistirme'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Gereksinimleri kur
+        run: python -m pip install -r requirements.txt
+
+      - name: Iki API anahtarini kontrol et
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+
+          required = (
+              "API_FOOTBALL_KEY",
+              "FOOTBALL_DATA_API_KEY",
+          )
+
+          for name in required:
+              if not os.environ.get(name, "").strip():
+                  raise SystemExit(
+                      "Missing required API secret: " + name
+                  )
+
+          print("Both API secrets are configured.")
+          PY
+
+      - name: Premier League identity report
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        run: |
+          mkdir -p reports
+
+          python - <<'PY'
+          import json
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          from v84_provider_identity_check import (
+              build_identity_report,
+          )
+
+          today = datetime.now(
+              ZoneInfo("Europe/Istanbul")
+          )
+
+          season = (
+              today.year
+              if today.month >= 7
+              else today.year - 1
+          )
+
+          report = build_identity_report(
+              season,
+              minimum_similarity=0.60,
+          )
+
+          if report["source_count"] == 0:
+              raise SystemExit(
+                  "API-Football returned no teams."
+              )
+
+          if report["target_count"] == 0:
+              raise SystemExit(
+                  "football-data returned no teams."
+              )
+
+          if report["verified_mappings"] != 0:
+              raise SystemExit(
+                  "Unexpected verified mappings."
+              )
+
+          if report["auto_activated"]:
+              raise SystemExit(
+                  "Automatic activation is forbidden."
+              )
+
+          path = Path(
+              "reports/v84_premier_league_identity.json"
+          )
+
+          path.write_text(
+              json.dumps(
+                  report,
+                  ensure_ascii=False,
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+
+          print("Season:", season)
+          print(
+              "API-Football teams:",
+              report["source_count"],
+          )
+          print(
+              "football-data teams:",
+              report["target_count"],
+          )
+          print(
+              "Identity report saved:",
+              path,
+          )
+          print(
+              "No mappings were activated."
+          )
+          PY
+
+      - name: Raporu indirilebilir olarak sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: avax-v84-premier-league-identity
+          path: reports/v84_premier_league_identity.json
+          retention-days: 7
+          if-no-files-found: error
