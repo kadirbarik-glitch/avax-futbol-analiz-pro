@@ -1,8 +1,8 @@
+"""AVAX V8.4 - Daily Match Center.
 
-"""AVAX V8.4 - Daily Football Match Center.
-
-Standalone development application.
-Does not modify the live V8.3 application.
+Standalone development app.
+Match status grouping and safe analysis availability.
+Does not modify V8.3 prediction engines.
 """
 
 from datetime import timedelta
@@ -18,171 +18,168 @@ from v84_daily_fixtures import (
 
 app = Flask(__name__)
 
+NOT_STARTED = {"NS", "TBD"}
+LIVE = {"1H", "HT", "2H", "ET", "BT", "P", "INT", "LIVE"}
+FINISHED = {"FT", "AET", "PEN"}
+POSTPONED = {"PST", "CANC", "ABD", "SUSP", "AWD", "WO"}
+
 PAGE = """
 <!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AVAX V8.4 - Günlük Maç Merkezi</title>
 <style>
 * { box-sizing: border-box; }
-
 body {
-    margin: 0;
-    background: #0f172a;
-    color: #f8fafc;
-    font-family: Arial, sans-serif;
+  margin: 0;
+  background: #0f172a;
+  color: #f8fafc;
+  font-family: Arial, sans-serif;
 }
-
 .container {
-    max-width: 1000px;
-    margin: auto;
-    padding: 20px 14px;
+  max-width: 1000px;
+  margin: auto;
+  padding: 20px 14px;
 }
-
 h1 {
-    color: #4ade80;
-    font-size: 28px;
-    line-height: 1.25;
+  color: #4ade80;
+  font-size: 28px;
+  line-height: 1.25;
 }
-
 .subtitle {
-    color: #cbd5e1;
-    line-height: 1.6;
+  color: #cbd5e1;
+  line-height: 1.6;
 }
-
 .panel {
-    background: #1e293b;
-    padding: 20px;
-    border-radius: 16px;
-    margin-top: 20px;
+  background: #1e293b;
+  padding: 20px;
+  border-radius: 16px;
+  margin-top: 20px;
 }
-
 .filters {
-    display: grid;
-    grid-template-columns: repeat(
-        auto-fit, minmax(180px, 1fr)
-    );
-    gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
 }
-
 label {
-    display: block;
-    margin-bottom: 7px;
-    font-weight: bold;
+  display: block;
+  margin-bottom: 7px;
+  font-weight: bold;
 }
-
 select, input, button {
-    width: 100%;
-    padding: 13px;
-    border-radius: 9px;
-    border: 1px solid #475569;
-    font-size: 16px;
+  width: 100%;
+  padding: 13px;
+  border-radius: 9px;
+  border: 1px solid #475569;
+  font-size: 16px;
 }
-
 select, input {
-    background: #334155;
-    color: white;
+  background: #334155;
+  color: white;
 }
-
 button {
-    background: #22c55e;
-    color: #052e16;
-    font-weight: bold;
-    border: none;
-    cursor: pointer;
+  background: #22c55e;
+  color: #052e16;
+  font-weight: bold;
+  border: none;
+  cursor: pointer;
 }
-
 .quick {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
 }
-
 .quick a {
-    color: #86efac;
-    text-decoration: none;
-    border: 1px solid #475569;
-    padding: 10px 15px;
-    border-radius: 9px;
+  color: #86efac;
+  text-decoration: none;
+  border: 1px solid #475569;
+  padding: 10px 15px;
+  border-radius: 9px;
 }
-
 .stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 20px;
 }
-
 .stat {
-    background: #334155;
-    padding: 15px 8px;
-    border-radius: 12px;
-    text-align: center;
+  background: #334155;
+  padding: 15px 8px;
+  border-radius: 12px;
+  text-align: center;
 }
-
 .stat strong {
-    display: block;
-    font-size: 25px;
-    color: #4ade80;
+  display: block;
+  font-size: 25px;
+  color: #4ade80;
 }
-
 .stat span {
-    font-size: 12px;
-    color: #cbd5e1;
+  font-size: 12px;
+  color: #cbd5e1;
 }
-
 .match {
-    background: #334155;
-    border-radius: 12px;
-    padding: 15px;
-    margin-top: 12px;
+  background: #334155;
+  border-radius: 12px;
+  padding: 15px;
+  margin-top: 12px;
 }
-
 .match-header {
-    color: #cbd5e1;
-    font-size: 13px;
-    margin-bottom: 10px;
+  color: #cbd5e1;
+  font-size: 13px;
+  margin-bottom: 10px;
 }
-
 .teams {
-    font-size: 17px;
-    font-weight: bold;
-    line-height: 1.5;
+  font-size: 17px;
+  font-weight: bold;
+  line-height: 1.5;
 }
-
 .time {
-    color: #86efac;
-    margin-top: 8px;
+  color: #86efac;
+  margin-top: 8px;
 }
-
 .status {
-    color: #cbd5e1;
-    font-size: 12px;
-    margin-top: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+  margin-top: 6px;
 }
-
+.section-title {
+  margin-top: 28px;
+  color: #f8fafc;
+  font-size: 21px;
+}
+.analysis-button {
+  margin-top: 12px;
+}
+.analysis-button:disabled {
+  background: #64748b;
+  color: #e2e8f0;
+  cursor: not-allowed;
+}
+.notice {
+  color: #fde68a;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 9px;
+}
 .warning {
-    background: #422006;
-    color: #fde68a;
-    padding: 14px;
-    border-radius: 10px;
-    margin-top: 16px;
+  background: #422006;
+  color: #fde68a;
+  padding: 14px;
+  border-radius: 10px;
+  margin-top: 16px;
 }
-
 .empty {
-    color: #cbd5e1;
-    padding: 20px 0;
+  color: #cbd5e1;
+  padding: 20px 0;
 }
-
 footer {
-    color: #94a3b8;
-    font-size: 12px;
-    margin-top: 25px;
-    line-height: 1.6;
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 25px;
+  line-height: 1.6;
 }
 </style>
 </head>
@@ -197,43 +194,38 @@ erişilebilir futbol karşılaşmaları.
 
 <div class="panel">
 <form method="get" action="/">
-
 <div class="filters">
 <div>
 <label for="date">Maç tarihi</label>
-<input id="date" type="date"
-       name="date" value="{{ selected }}"
-       min="{{ today }}"
+<input id="date" type="date" name="date"
+       value="{{ selected }}" min="{{ today }}"
        max="{{ max_date }}">
 </div>
-
 <div>
 <label for="country">Ülke</label>
 <select id="country" name="country">
 <option value="">Tüm ülkeler</option>
 {% for country in countries %}
 <option value="{{ country }}"
- {% if country == selected_country %}selected{% endif %}>
+{% if country == selected_country %}selected{% endif %}>
 {{ country }}
 </option>
 {% endfor %}
 </select>
 </div>
-
 <div>
 <label for="league">Lig</label>
 <select id="league" name="league">
 <option value="">Tüm ligler</option>
 {% for league in leagues %}
 <option value="{{ league }}"
- {% if league == selected_league %}selected{% endif %}>
+{% if league == selected_league %}selected{% endif %}>
 {{ league }}
 </option>
 {% endfor %}
 </select>
 </div>
 </div>
-
 <div style="margin-top:15px">
 <button type="submit">MAÇLARI GÖSTER</button>
 </div>
@@ -268,42 +260,137 @@ erişilebilir futbol karşılaşmaları.
 <div class="panel">
 <h2>📅 {{ selected }} Maçları</h2>
 
-{% for match in matches %}
+<h3 class="section-title">
+🟢 Başlamamış maçlar ({{ upcoming|length }})
+</h3>
+{% for match in upcoming %}
 <div class="match">
 <div class="match-header">
 {{ match.country }} / {{ match.league }}
 </div>
-
 <div class="teams">
 {{ match.home_team }} - {{ match.away_team }}
 </div>
-
 <div class="time">
 {{ match.kickoff_tr[11:16] }} (Türkiye saati)
 </div>
-
-<div class="status">
-Durum: {{ match.status }}
+<div class="status">Durum: {{ match.status }}</div>
+<button class="analysis-button" disabled>
+ANALİZ ET — HAZIRLANIYOR
+</button>
+<div class="notice">
+Bu maç için geçmiş veri yeterliliği henüz
+doğrulanmadı. Tahmin motoru bağlanınca
+analiz kullanılabilecek.
 </div>
 </div>
 {% else %}
-<div class="empty">
-Bu tarih ve filtreler için gösterilecek maç bulunamadı.
+<div class="empty">Başlamamış maç bulunamadı.</div>
+{% endfor %}
+
+<h3 class="section-title">
+🔴 Canlı maçlar ({{ live|length }})
+</h3>
+{% for match in live %}
+<div class="match">
+<div class="match-header">
+{{ match.country }} / {{ match.league }}
+</div>
+<div class="teams">
+{{ match.home_team }} - {{ match.away_team }}
+</div>
+<div class="time">
+{{ match.kickoff_tr[11:16] }} (Türkiye saati)
+</div>
+<div class="status">Durum: {{ match.status }}</div>
+</div>
+{% else %}
+<div class="empty">Canlı maç bulunamadı.</div>
+{% endfor %}
+
+<h3 class="section-title">
+⚪ Bitmiş maçlar ({{ finished|length }})
+</h3>
+{% for match in finished %}
+<div class="match">
+<div class="match-header">
+{{ match.country }} / {{ match.league }}
+</div>
+<div class="teams">
+{{ match.home_team }} - {{ match.away_team }}
+</div>
+<div class="time">
+{{ match.kickoff_tr[11:16] }} (Türkiye saati)
+</div>
+<div class="status">Durum: {{ match.status }}</div>
+</div>
+{% else %}
+<div class="empty">Bitmiş maç bulunamadı.</div>
+{% endfor %}
+
+<h3 class="section-title">
+🟠 Ertelenmiş / iptal / hükmen ({{ postponed|length }})
+</h3>
+{% for match in postponed %}
+<div class="match">
+<div class="match-header">
+{{ match.country }} / {{ match.league }}
+</div>
+<div class="teams">
+{{ match.home_team }} - {{ match.away_team }}
+</div>
+<div class="time">
+{{ match.kickoff_tr[11:16] }} (Türkiye saati)
+</div>
+<div class="status">Durum: {{ match.status }}</div>
+</div>
+{% else %}
+<div class="empty">Bu grupta maç bulunamadı.</div>
+{% endfor %}
+
+{% if other %}
+<h3 class="section-title">
+Diğer durumlar ({{ other|length }})
+</h3>
+{% for match in other %}
+<div class="match">
+<div class="match-header">
+{{ match.country }} / {{ match.league }}
+</div>
+<div class="teams">
+{{ match.home_team }} - {{ match.away_team }}
+</div>
+<div class="time">
+{{ match.kickoff_tr[11:16] }} (Türkiye saati)
+</div>
+<div class="status">Durum: {{ match.status }}</div>
 </div>
 {% endfor %}
+{% endif %}
 </div>
 
 <footer>
 V8.4 geliştirme sürümü.
 Maç listesi API-Football verilerine bağlıdır.
 Tüm organizasyonların kapsandığı garanti edilmez.
-Tahmin ve bahis tavsiyesi içermez.
+Analiz butonları henüz aktif değildir.
 </footer>
-
 </div>
 </body>
 </html>
 """
+
+
+def classify_match(status):
+    if status in NOT_STARTED:
+        return "upcoming"
+    if status in LIVE:
+        return "live"
+    if status in FINISHED:
+        return "finished"
+    if status in POSTPONED:
+        return "postponed"
+    return "other"
 
 
 @app.route("/")
@@ -316,11 +403,9 @@ def daily_home():
     selected_raw = request.args.get(
         "date", today.isoformat()
     )
-
     selected_country = request.args.get(
         "country", ""
     ).strip()
-
     selected_league = request.args.get(
         "league", ""
     ).strip()
@@ -330,15 +415,12 @@ def daily_home():
 
     try:
         selected_date = validate_date(selected_raw)
-
         if not today <= selected_date <= max_date:
             raise ValueError(
                 "Tarih desteklenen araligin disinda."
             )
-
         result = get_daily_fixtures(selected_date)
         all_matches = result["matches"]
-
     except (ValueError, DailyFixtureError) as exc:
         error = str(exc)
         selected_date = today
@@ -347,7 +429,6 @@ def daily_home():
         m["country"] for m in all_matches
         if m.get("country")
     })
-
     leagues = sorted({
         m["league"] for m in all_matches
         if m.get("league")
@@ -369,10 +450,23 @@ def daily_home():
         )
     ]
 
+    groups = {
+        "upcoming": [],
+        "live": [],
+        "finished": [],
+        "postponed": [],
+        "other": [],
+    }
+
+    for match in matches:
+        category = classify_match(
+            match.get("status", "")
+        )
+        groups[category].append(match)
+
     country_count = len({
         m["country"] for m in matches
     })
-
     league_count = len({
         (m["country"], m["league"])
         for m in matches
@@ -392,6 +486,11 @@ def daily_home():
         matches=matches,
         country_count=country_count,
         league_count=league_count,
+        upcoming=groups["upcoming"],
+        live=groups["live"],
+        finished=groups["finished"],
+        postponed=groups["postponed"],
+        other=groups["other"],
         error=error,
     )
 
