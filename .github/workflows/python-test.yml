@@ -275,10 +275,10 @@ jobs:
             test_v84_provider_identity_check
 
       - name: AVAX V8.4 Premier League identity check once
-        if: |
+        if: >-
           github.event_name == 'push' &&
           github.ref == 'refs/heads/codex-v83-gelistirme' &&
-          github.event.head_commit.message == 'AVAX-V84-IDENTITY-ONCE'
+          startsWith(github.event.head_commit.message, 'AVAX-V84-IDENTITY-ONCE')
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
@@ -344,10 +344,10 @@ jobs:
           PY
 
       - name: Save V8.4 Premier League identity report
-        if: |
+        if: >-
           github.event_name == 'push' &&
           github.ref == 'refs/heads/codex-v83-gelistirme' &&
-          github.event.head_commit.message == 'AVAX-V84-IDENTITY-ONCE'
+          startsWith(github.event.head_commit.message, 'AVAX-V84-IDENTITY-ONCE')
         uses: actions/upload-artifact@v4
         with:
           name: avax-v84-premier-league-identity
