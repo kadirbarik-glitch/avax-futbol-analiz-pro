@@ -1,3 +1,4 @@
+
 name: AVAX V8 Test
 
 on:
@@ -58,7 +59,9 @@ jobs:
             v84_daily_live_check.py \
             v84_daily_app.py \
             test_v84_daily_app.py \
-            test_v84_kickoff_safety.py
+            test_v84_kickoff_safety.py \
+            v84_analysis_bridge.py \
+            test_v84_analysis_bridge.py
 
       - name: V8 model secimlerini kontrol et
         run: |
@@ -259,7 +262,8 @@ jobs:
             test_v84_daily_fixtures \
             test_v84_date_boundaries \
             test_v84_daily_app \
-            test_v84_kickoff_safety
+            test_v84_kickoff_safety \
+            test_v84_analysis_bridge
 
       - name: AVAX V8.4 Super Lig historical import
         if: |
