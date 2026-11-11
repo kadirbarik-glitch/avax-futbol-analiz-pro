@@ -1,5 +1,5 @@
 
-name: AVAX V8 Test.
+name: AVAX V8 Test
 
 on:
   workflow_dispatch:
