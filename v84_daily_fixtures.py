@@ -6,6 +6,7 @@ unsafe cross-provider mapping.
 """
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.parse
@@ -20,6 +21,7 @@ CACHE_MINUTES = 30
 MAX_DAYS_AHEAD = 30
 WEEK_DAYS = 7
 TR_TIMEZONE = ZoneInfo("Europe/Istanbul")
+LOGGER = logging.getLogger(__name__)
 
 
 class DailyFixtureError(RuntimeError):
@@ -118,12 +120,25 @@ def fetch_football_data_fixture_range(start_date, end_date, api_key):
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.load(response)
     except urllib.error.HTTPError as error:
+        LOGGER.warning(
+            "football-data weekly request failed http_status=%s date_from=%s date_to=%s",
+            error.code, start, end,
+        )
         raise DailyFixtureError("football-data HTTP status: " + str(error.code)) from None
     except (urllib.error.URLError, TimeoutError, ValueError):
+        LOGGER.warning(
+            "football-data weekly request failed date_from=%s date_to=%s",
+            start, end,
+        )
         raise DailyFixtureError("football-data request failed") from None
     if not isinstance(payload, dict) or not isinstance(payload.get("matches"), list):
         raise DailyFixtureError("Invalid football-data fixture response")
-    return payload["matches"]
+    matches = payload["matches"]
+    LOGGER.info(
+        "football-data weekly response http_status=200 date_from=%s date_to=%s provider_match_count=%s",
+        start, end, len(matches),
+    )
+    return matches
 
 
 def week_cache_path(start_date):
@@ -147,7 +162,7 @@ def load_week_cache(start_date):
         return None
 
 
-def save_week_cache(start_date, matches):
+def save_week_cache(start_date, matches, diagnostics=None):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = week_cache_path(start_date)
     temporary = path.with_suffix(".tmp")
@@ -155,6 +170,7 @@ def save_week_cache(start_date, matches):
         "start_date": validate_date(start_date).isoformat(),
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "matches": matches,
+        "diagnostics": diagnostics or {},
     }
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
@@ -224,9 +240,19 @@ def get_weekly_fixtures(start_date=None, force_refresh=False):
     if not force_refresh:
         cached = load_week_cache(start)
         if cached is not None:
+            cached.setdefault("diagnostics", {
+                "source": "cache",
+                "provider_http_status": "cached",
+                "provider_match_count": len(cached["matches"]),
+                "filtered_match_count": len(cached["matches"]),
+            })
             return cached
     api_key = os.environ.get("FOOTBALL_DATA_API_KEY", "").strip()
     if not api_key:
+        LOGGER.warning(
+            "football-data weekly request skipped missing_api_key date_from=%s date_to=%s",
+            start - timedelta(days=1), end,
+        )
         raise DailyFixtureError("FOOTBALL_DATA_API_KEY is not configured")
     # Turkey is UTC+3: include the prior UTC day and the last selected UTC day.
     raw_matches = fetch_football_data_fixture_range(
@@ -245,4 +271,17 @@ def get_weekly_fixtures(start_date=None, force_refresh=False):
         matches.values(),
         key=lambda match: (match["date_tr"], match["kickoff_tr"], match["league"], match["match_id"]),
     )
-    return save_week_cache(start, ordered)
+    diagnostics = {
+        "source": "api",
+        "provider_http_status": 200,
+        "request_date_from": (start - timedelta(days=1)).isoformat(),
+        "request_date_to": end.isoformat(),
+        "provider_match_count": len(raw_matches),
+        "filtered_match_count": len(ordered),
+    }
+    LOGGER.info(
+        "football-data weekly filtered date_from=%s date_to=%s provider_match_count=%s filtered_match_count=%s",
+        diagnostics["request_date_from"], diagnostics["request_date_to"],
+        diagnostics["provider_match_count"], diagnostics["filtered_match_count"],
+    )
+    return save_week_cache(start, ordered, diagnostics)

@@ -167,8 +167,7 @@ HOME_PAGE = """<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta 
 <div class="brand">AVAX FUTBOL ANALİZ PRO · BETA</div><h1 class="title">Günlük maç merkezi</h1><p class="sub">Canlı sağlayıcı verisi · Türkiye saati · Beta erişimi</p>
 <form class="panel filters" method="get"><input type="date" name="date" value="{{ selected }}" min="{{ today }}" max="{{ max_date }}"><button>Maçları getir</button></form>
 <div class="quick"><a href="/?date={{ today }}">Bugün</a><a href="/?date={{ tomorrow }}">Yarın</a></div>
-<section class="panel"><div class="league">7 GÜNLÜK TAKVİM · Türkiye saati</div><div class="quick">{% for day in calendar %}<a class="{% if day.date == selected %}button{% endif %}" href="/?date={{ day.date }}">{{ day.day }} · {{ day.count }} maç</a>{% endfor %}</div><p class="muted">0 maç görünen günlerde sağlayıcıdan doğrulanmış maç yoktur.</p></section>
-{% if error %}<div class="notice error">{{ error }}</div>{% endif %}
+{% if error %}<div class="notice error">Takvim yüklenemedi: {{ error }}. Bu durum 0 maç anlamına gelmez.</div>{% else %}<section class="panel"><div class="league">7 GÜNLÜK TAKVİM · Türkiye saati</div><div class="quick">{% for day in calendar %}<a class="{% if day.date == selected %}button{% endif %}" href="/?date={{ day.date }}">{{ day.day }} · {{ day.count }} maç</a>{% endfor %}</div><p class="muted">Sağlayıcı HTTP {{ diagnostics.provider_http_status }} · istek: {{ diagnostics.request_date_from }} / {{ diagnostics.request_date_to }} · sağlayıcı: {{ diagnostics.provider_match_count }} maç · Türkiye günü filtresi: {{ diagnostics.filtered_match_count }} maç.</p><p class="muted">0 maç yalnızca başarılı sağlayıcı yanıtından sonra gösterilir.</p></section>{% endif %}
 <div class="summary"><div><strong>{{ total }}</strong><span class="label">maç</span></div><div><strong>{{ upcoming|length }}</strong><span class="label">başlamamış</span></div><div><strong>{{ live|length }}</strong><span class="label">canlı</span></div></div>
 {% for heading, rows in [("Başlamamış maçlar",upcoming),("Canlı maçlar",live),("Tamamlanan maçlar",finished),("Ertelenen / diğer",postponed + other)] %}
 <h2 class="section">{{ heading }} · {{ rows|length }}</h2>{% for match in rows %}<article class="match"><span class="tag">{{ match.status }}</span><div class="league">{{ match.country }} · {{ match.league }}</div><div class="teams">{{ match.home_team }} – {{ match.away_team }}</div><div class="time">{{ match.kickoff_tr[11:16] }} · Türkiye saati</div><p class="muted">{{ match.analysis_label }}</p>{% if match in upcoming %}<p><a class="button" href="/match/{{ match.match_id }}?date={{ selected }}">Detay ve analiz</a></p>{% endif %}</article>{% else %}<p class="muted">Bu grupta maç yok.</p>{% endfor %}{% endfor %}
@@ -195,10 +194,17 @@ def home():
         ]
         groups = match_groups(selected_matches)
         calendar = weekly_calendar(today, result["matches"])
+        diagnostics = result.get("diagnostics") or {
+            "provider_http_status": "bilinmiyor",
+            "request_date_from": "bilinmiyor",
+            "request_date_to": "bilinmiyor",
+            "provider_match_count": "bilinmiyor",
+            "filtered_match_count": len(result["matches"]),
+        }
         error = None
     except (ValueError, DailyFixtureError) as exc:
-        selected, groups, calendar, error = today, match_groups([]), weekly_calendar(today, []), str(exc)
-    return render_template_string(HOME_PAGE, selected=selected.isoformat(), today=today.isoformat(), tomorrow=(today + timedelta(days=1)).isoformat(), max_date=(today + timedelta(days=6)).isoformat(), total=sum(map(len, groups.values())), calendar=calendar, error=error, **groups)
+        selected, groups, calendar, diagnostics, error = today, match_groups([]), None, None, str(exc)
+    return render_template_string(HOME_PAGE, selected=selected.isoformat(), today=today.isoformat(), tomorrow=(today + timedelta(days=1)).isoformat(), max_date=(today + timedelta(days=6)).isoformat(), total=sum(map(len, groups.values())), calendar=calendar, diagnostics=diagnostics, error=error, **groups)
 
 
 @app.route("/match/<match_id>")

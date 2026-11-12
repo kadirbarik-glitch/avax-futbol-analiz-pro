@@ -40,12 +40,22 @@ class BetaAppTests(unittest.TestCase):
         self.assertIn("Basic", response.headers["WWW-Authenticate"])
 
     def test_authenticated_mobile_list_uses_fixture_data(self):
-        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", return_value={"matches": [fixture()]}), patch.object(beta, "kickoff_is_past", return_value=False):
+        weekly = {"matches": [fixture()], "diagnostics": {"provider_http_status": 200, "request_date_from": "2026-11-09", "request_date_to": "2026-11-16", "provider_match_count": 1, "filtered_match_count": 1}}
+        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", return_value=weekly), patch.object(beta, "kickoff_is_past", return_value=False):
             response = self.client.get("/?date=2026-11-10", headers=self.auth())
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Home", response.data)
         self.assertIn(b"Detay ve analiz", response.data)
         self.assertIn("Analiz destekleniyor".encode("utf-8"), response.data)
+        self.assertIn("sağlayıcı: 1 maç".encode("utf-8"), response.data)
+
+    def test_provider_error_is_not_rendered_as_zero_match_calendar(self):
+        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", side_effect=beta.DailyFixtureError("football-data HTTP status: 429")):
+            response = self.client.get("/", headers=self.auth())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Takvim yüklenemedi".encode("utf-8"), response.data)
+        self.assertIn(b"429", response.data)
+        self.assertNotIn("0 maç yalnızca başarılı".encode("utf-8"), response.data)
 
     def test_unsupported_league_is_explicitly_labelled(self):
         unsupported = fixture()

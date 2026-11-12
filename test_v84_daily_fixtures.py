@@ -59,16 +59,25 @@ class DailyFixtureTests(unittest.TestCase):
         early = sample_match(201, "2026-11-09T22:00:00Z")
         late = sample_match(202, "2026-11-16T20:59:00Z")
         outside = sample_match(203, "2026-11-16T21:00:00Z")
-        with patch.object(daily, "today_turkey", return_value=start), patch.dict("os.environ", {"FOOTBALL_DATA_API_KEY": "test"}), patch.object(daily, "fetch_football_data_fixture_range", return_value=[early, late, outside]) as fetch, patch.object(daily, "save_week_cache", side_effect=lambda value, matches: {"start_date": value.isoformat(), "matches": matches}):
+        with patch.object(daily, "today_turkey", return_value=start), patch.dict("os.environ", {"FOOTBALL_DATA_API_KEY": "test"}), patch.object(daily, "fetch_football_data_fixture_range", return_value=[early, late, outside]) as fetch, patch.object(daily, "save_week_cache", side_effect=lambda value, matches, diagnostics: {"start_date": value.isoformat(), "matches": matches, "diagnostics": diagnostics}):
             result = daily.get_weekly_fixtures(start, force_refresh=True)
         fetch.assert_called_once_with(date(2026, 11, 9), date(2026, 11, 16), "test")
         self.assertEqual([item["match_id"] for item in result["matches"]], ["201", "202"])
+        self.assertEqual(result["diagnostics"]["provider_match_count"], 3)
+        self.assertEqual(result["diagnostics"]["filtered_match_count"], 2)
 
     def test_week_cache_avoids_range_request(self):
         start = date(2026, 11, 10)
         cached = {"start_date": start.isoformat(), "matches": []}
         with patch.object(daily, "today_turkey", return_value=start), patch.object(daily, "load_week_cache", return_value=cached), patch.object(daily, "fetch_football_data_fixture_range", side_effect=AssertionError("network must not be called")):
             self.assertEqual(daily.get_weekly_fixtures(start), cached)
+
+    def test_weekly_diagnostics_never_log_api_key(self):
+        start = date(2026, 11, 10)
+        secret = "not-a-real-key"
+        with patch.object(daily, "today_turkey", return_value=start), patch.dict("os.environ", {"FOOTBALL_DATA_API_KEY": secret}), patch.object(daily, "fetch_football_data_fixture_range", return_value=[]), patch.object(daily, "save_week_cache", side_effect=lambda value, matches, diagnostics: {"matches": matches, "diagnostics": diagnostics}), self.assertLogs(daily.LOGGER, level="INFO") as logs:
+            daily.get_weekly_fixtures(start, force_refresh=True)
+        self.assertNotIn(secret, "\n".join(logs.output))
 
 
 if __name__ == "__main__":
