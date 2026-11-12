@@ -24,6 +24,9 @@ from v84_daily_fixtures import (
 app = Flask(__name__)
 app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True)
 
+MODEL_COMPETITIONS = frozenset({"PL", "PD", "SA", "BL1", "FL1", "CL"})
+UNSAFE_QUALITY_LEVELS = frozenset({"LOW", "INSUFFICIENT"})
+
 
 def beta_credentials_configured():
     """Return whether both beta credentials are present without exposing them."""
@@ -84,12 +87,44 @@ def load_day(value):
 def match_groups(matches):
     groups = {name: [] for name in ("upcoming", "live", "finished", "postponed", "other")}
     now = datetime.now(timezone.utc)
-    for match in matches:
+    for raw_match in matches:
+        match = dict(raw_match)
+        match["analysis_supported"] = (
+            str(match.get("league_id", "")).upper()
+            in MODEL_COMPETITIONS
+        )
+        match["analysis_label"] = (
+            "Analiz destekleniyor"
+            if match["analysis_supported"]
+            else "Analiz desteklenmiyor"
+        )
         group = classify_match(match.get("status", ""))
         if group == "upcoming" and kickoff_is_past(match, now):
             group = "other"
         groups[group].append(match)
+    for rows in groups.values():
+        rows.sort(
+            key=lambda match: (
+                not match["analysis_supported"],
+                match.get("kickoff_tr", ""),
+                match.get("match_id", ""),
+            )
+        )
     return groups
+
+
+def prediction_display_allowed(analysis):
+    """Reject display when actual history quality is too weak for beta use."""
+    prediction = analysis.get("prediction") or {}
+    quality = prediction.get("market_data_quality") or {}
+    levels = {item.get("level") for item in quality.values()}
+    freshness = {item.get("freshness") for item in quality.values()}
+    return bool(
+        prediction
+        and quality
+        and not levels.intersection(UNSAFE_QUALITY_LEVELS)
+        and "NO_DATA" not in freshness
+    )
 
 
 def quality_warning(analysis):
@@ -117,7 +152,7 @@ HOME_PAGE = """<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta 
 {% if error %}<div class="notice error">{{ error }}</div>{% endif %}
 <div class="summary"><div><strong>{{ total }}</strong><span class="label">maç</span></div><div><strong>{{ upcoming|length }}</strong><span class="label">başlamamış</span></div><div><strong>{{ live|length }}</strong><span class="label">canlı</span></div></div>
 {% for heading, rows in [("Başlamamış maçlar",upcoming),("Canlı maçlar",live),("Tamamlanan maçlar",finished),("Ertelenen / diğer",postponed + other)] %}
-<h2 class="section">{{ heading }} · {{ rows|length }}</h2>{% for match in rows %}<article class="match"><span class="tag">{{ match.status }}</span><div class="league">{{ match.country }} · {{ match.league }}</div><div class="teams">{{ match.home_team }} – {{ match.away_team }}</div><div class="time">{{ match.kickoff_tr[11:16] }} · Türkiye saati</div>{% if match in upcoming %}<p><a class="button" href="/match/{{ match.match_id }}?date={{ selected }}">Detay ve analiz</a></p>{% endif %}</article>{% else %}<p class="muted">Bu grupta maç yok.</p>{% endfor %}{% endfor %}
+<h2 class="section">{{ heading }} · {{ rows|length }}</h2>{% for match in rows %}<article class="match"><span class="tag">{{ match.status }}</span><div class="league">{{ match.country }} · {{ match.league }}</div><div class="teams">{{ match.home_team }} – {{ match.away_team }}</div><div class="time">{{ match.kickoff_tr[11:16] }} · Türkiye saati</div><p class="muted">{{ match.analysis_label }}</p>{% if match in upcoming %}<p><a class="button" href="/match/{{ match.match_id }}?date={{ selected }}">Detay ve analiz</a></p>{% endif %}</article>{% else %}<p class="muted">Bu grupta maç yok.</p>{% endfor %}{% endfor %}
 <footer>Tahminler bilgilendirme amaçlıdır; garanti veya bahis tavsiyesi değildir.</footer></main></body></html>"""
 
 
@@ -151,6 +186,17 @@ def match_detail(match_id):
         abort(404)
     analysis = prepare_analysis(match)
     prediction = analysis.get("prediction") or {}
+    if prediction and not prediction_display_allowed(analysis):
+        analysis = dict(analysis)
+        analysis["prediction"] = None
+        analysis["reason"] = (
+            "Analiz desteklenmiyor veya gerçek geçmiş veri yeterliliği "
+            "tahmin göstermek için yetersiz."
+        )
+        analysis["warning"] = (
+            "LOW, INSUFFICIENT veya veri yok kalitesinde olasılık gösterilmez."
+        )
+        prediction = {}
     probabilities = (prediction.get("probabilities_percent") or {}).items()
     labels = {"home": "Ev sahibi", "draw": "Beraberlik", "away": "Deplasman", "over25": "2.5 Üst", "btts": "KG Var"}
     probabilities = [(labels.get(key, key), value) for key, value in probabilities]

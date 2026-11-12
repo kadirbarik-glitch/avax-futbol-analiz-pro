@@ -45,6 +45,24 @@ class BetaAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Home", response.data)
         self.assertIn(b"Detay ve analiz", response.data)
+        self.assertIn("Analiz destekleniyor".encode("utf-8"), response.data)
+
+    def test_unsupported_league_is_explicitly_labelled(self):
+        unsupported = fixture()
+        unsupported["league_id"] = "BSA"
+        unsupported["league"] = "Brazilian Serie A"
+        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_daily_fixtures", return_value={"matches": [unsupported]}), patch.object(beta, "kickoff_is_past", return_value=False):
+            response = self.client.get("/?date=2026-11-10", headers=self.auth())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Analiz desteklenmiyor".encode("utf-8"), response.data)
+
+    def test_supported_leagues_are_prioritized_within_a_match_group(self):
+        unsupported = fixture()
+        unsupported.update({"match_id": "45", "league_id": "BSA", "kickoff_tr": "2027-11-11T18:00:00+03:00"})
+        supported = fixture()
+        supported.update({"match_id": "46", "kickoff_tr": "2027-11-11T20:00:00+03:00"})
+        groups = beta.match_groups([unsupported, supported])
+        self.assertEqual([row["match_id"] for row in groups["upcoming"]], ["46", "45"])
 
     def test_detail_never_invents_prediction_when_bridge_blocks(self):
         blocked = {"prediction": None, "reason": "Match is not upcoming", "warning": "No prediction has been generated."}
@@ -55,12 +73,20 @@ class BetaAppTests(unittest.TestCase):
         self.assertNotIn(b"%50", response.data)
 
     def test_detail_displays_real_bridge_probability(self):
-        ready = {"prediction": {"probabilities_percent": {"home": 52, "draw": 25}}, "warning": "Informational output."}
+        ready = {"prediction": {"probabilities_percent": {"home": 52, "draw": 25}, "market_data_quality": {"match_result": {"level": "ADEQUATE", "freshness": "FRESH"}}}, "warning": "Informational output."}
         with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_daily_fixtures", return_value={"matches": [fixture()]}), patch.object(beta, "prepare_analysis", return_value=ready):
             response = self.client.get("/match/44?date=2026-11-10", headers=self.auth())
         self.assertEqual(response.status_code, 200)
         self.assertIn("Ev sahibi".encode("utf-8"), response.data)
         self.assertIn(b"%52", response.data)
+
+    def test_low_quality_prediction_is_not_displayed(self):
+        low_quality = {"prediction": {"probabilities_percent": {"home": 99}, "market_data_quality": {"match_result": {"level": "LOW", "freshness": "FRESH"}}}, "warning": "Informational output."}
+        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_daily_fixtures", return_value={"matches": [fixture()]}), patch.object(beta, "prepare_analysis", return_value=low_quality):
+            response = self.client.get("/match/44?date=2026-11-10", headers=self.auth())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("olasılık gösterilmez".encode("utf-8"), response.data)
+        self.assertNotIn(b"%99", response.data)
 
     def test_healthz_does_not_require_credentials_or_expose_data(self):
         response = self.client.get("/healthz")
