@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: avax-futbol-analiz-v84-beta
+    runtime: python
+    branch: codex-v83-gelistirme
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app_v84_beta:app
+    healthCheckPath: /healthz
+    autoDeploy: false
