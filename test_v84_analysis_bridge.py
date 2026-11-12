@@ -7,6 +7,7 @@ No API calls, predictions, or deployment.
 
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from v84_analysis_bridge import (
     check_analysis_eligibility,
@@ -98,6 +99,21 @@ class AnalysisBridgeTests(unittest.TestCase):
         )
         self.assertIsNone(result["prediction"])
         self.assertFalse(result["analysis_ready"])
+
+    def test_same_provider_fixture_uses_existing_prediction_engine(self):
+        match = sample_match(provider="football-data.org", league_id="PL")
+        fake_prediction = {"probabilities_percent": {"home": 50}}
+        with patch("v8_data.analyze_match", return_value=fake_prediction) as analyze:
+            result = prepare_analysis(match, NOW)
+        self.assertTrue(result["analysis_ready"])
+        self.assertEqual(result["prediction"], fake_prediction)
+        analyze.assert_called_once_with("PL", 10, 20, match["kickoff_tr"])
+
+    def test_unsupported_same_provider_competition_is_blocked(self):
+        result = check_analysis_eligibility(
+            sample_match(provider="football-data.org", league_id="TR1"), NOW
+        )
+        self.assertFalse(result["eligible"])
 
 
 if __name__ == "__main__":

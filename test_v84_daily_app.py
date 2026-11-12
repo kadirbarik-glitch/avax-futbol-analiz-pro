@@ -133,6 +133,20 @@ class DailyAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"API unavailable", response.data)
 
+    def test_analysis_route_returns_guarded_bridge_result(self):
+        match = sample_match()
+        match.update({"provider": "football-data.org", "league_id": "PL"})
+        expected = {"eligible": True, "analysis_ready": True, "prediction": {}}
+        with patch("v84_daily_app.get_daily_fixtures", return_value={"date": "2026-11-10", "matches": [match]}), patch("v84_analysis_bridge.prepare_analysis", return_value=expected):
+            response = self.client.get("/analysis/12345?date=2026-11-10")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), expected)
+
+    def test_analysis_route_rejects_unknown_match(self):
+        with patch("v84_daily_app.get_daily_fixtures", return_value={"date": "2026-11-10", "matches": []}):
+            response = self.client.get("/analysis/missing?date=2026-11-10")
+        self.assertEqual(response.status_code, 404)
+
     def test_upcoming_status(self):
         self.assertEqual(
             classify_match("NS"), "upcoming"

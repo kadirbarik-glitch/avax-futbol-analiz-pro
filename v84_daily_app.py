@@ -8,7 +8,7 @@ Does not modify live V8.3.
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template_string, request
+from flask import Flask, jsonify, render_template_string, request
 
 from v84_daily_fixtures import (
     DailyFixtureError,
@@ -21,10 +21,12 @@ app = Flask(__name__)
 
 TR_TZ = ZoneInfo("Europe/Istanbul")
 
-NOT_STARTED = {"NS", "TBD"}
-LIVE = {"1H", "HT", "2H", "ET", "BT", "P", "INT", "LIVE"}
-FINISHED = {"FT", "AET", "PEN"}
-POSTPONED = {"PST", "CANC", "ABD", "SUSP", "AWD", "WO"}
+# API-Football aliases are retained for cached legacy records; football-data.org
+# statuses are the active V8.4 daily-provider vocabulary.
+NOT_STARTED = {"NS", "TBD", "SCHEDULED", "TIMED"}
+LIVE = {"1H", "HT", "2H", "ET", "BT", "P", "INT", "LIVE", "IN_PLAY", "PAUSED", "EXTRA_TIME", "PENALTY_SHOOTOUT"}
+FINISHED = {"FT", "AET", "PEN", "FINISHED"}
+POSTPONED = {"PST", "CANC", "ABD", "SUSP", "AWD", "WO", "POSTPONED", "CANCELLED", "SUSPENDED", "AWARDED"}
 
 PAGE = """
 <!DOCTYPE html>
@@ -277,12 +279,9 @@ erişilebilir futbol karşılaşmaları.
 {{ match.kickoff_tr[11:16] }} (Türkiye saati)
 </div>
 <div class="status">Durum: {{ match.status }}</div>
-<button class="analysis-button" disabled>
-ANALİZ ET — HAZIRLANIYOR
-</button>
+<a class="analysis-button" href="/analysis/{{ match.match_id }}?date={{ selected }}">ANALİZ ET</a>
 <div class="notice">
-Geçmiş veri yeterliliği doğrulanmadı.
-Tahmin motoru henüz bağlı değil.
+Yalnızca desteklenen ligler ve başlamamış maçlar analiz edilir.
 </div>
 </div>
 {% else %}
@@ -561,6 +560,39 @@ def daily_home():
         other=groups["other"],
         error=error,
     )
+
+
+@app.route("/analysis/<match_id>")
+def daily_analysis(match_id):
+    """Return a guarded V8 analysis for one fixture in the selected day."""
+    try:
+        selected = validate_date(
+            request.args.get("date", today_turkey().isoformat())
+        )
+        fixtures = get_daily_fixtures(selected)
+    except (ValueError, DailyFixtureError) as error:
+        return jsonify({
+            "eligible": False,
+            "analysis_ready": False,
+            "reason": str(error),
+        }), 400
+
+    match = next(
+        (item for item in fixtures["matches"]
+         if item.get("match_id") == str(match_id)),
+        None,
+    )
+    if match is None:
+        return jsonify({
+            "eligible": False,
+            "analysis_ready": False,
+            "reason": "Match not found",
+        }), 404
+
+    # Local import avoids a cycle: the bridge reuses this module's safety
+    # helpers for status classification and kickoff validation.
+    from v84_analysis_bridge import prepare_analysis
+    return jsonify(prepare_analysis(match))
 
 
 if __name__ == "__main__":
