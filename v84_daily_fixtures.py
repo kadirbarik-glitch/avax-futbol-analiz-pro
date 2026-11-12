@@ -18,6 +18,7 @@ API_URL = "https://api.football-data.org/v4"
 CACHE_DIR = Path("data_cache") / "daily_v84"
 CACHE_MINUTES = 30
 MAX_DAYS_AHEAD = 30
+WEEK_DAYS = 7
 TR_TIMEZONE = ZoneInfo("Europe/Istanbul")
 
 
@@ -102,6 +103,64 @@ def fetch_football_data_fixtures(target_date, api_key):
     return payload["matches"]
 
 
+def fetch_football_data_fixture_range(start_date, end_date, api_key):
+    """Fetch a UTC date range in one request to preserve the free quota."""
+    start = validate_date(start_date).isoformat()
+    end = validate_date(end_date).isoformat()
+    if end < start:
+        raise ValueError("End date precedes start date")
+    query = urllib.parse.urlencode({"dateFrom": start, "dateTo": end})
+    request = urllib.request.Request(
+        API_URL + "/matches?" + query,
+        headers={"X-Auth-Token": api_key, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        raise DailyFixtureError("football-data HTTP status: " + str(error.code)) from None
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        raise DailyFixtureError("football-data request failed") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("matches"), list):
+        raise DailyFixtureError("Invalid football-data fixture response")
+    return payload["matches"]
+
+
+def week_cache_path(start_date):
+    return CACHE_DIR / ("week_" + validate_date(start_date).isoformat() + ".json")
+
+
+def load_week_cache(start_date):
+    path = week_cache_path(start_date)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        timestamp = datetime.fromisoformat(payload["fetched_at"])
+        age = datetime.now(timezone.utc) - timestamp
+        if timestamp.tzinfo is None or not timedelta(0) <= age < timedelta(minutes=CACHE_MINUTES):
+            return None
+        if payload.get("start_date") != validate_date(start_date).isoformat() or not isinstance(payload.get("matches"), list):
+            return None
+        return payload
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def save_week_cache(start_date, matches):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = week_cache_path(start_date)
+    temporary = path.with_suffix(".tmp")
+    payload = {
+        "start_date": validate_date(start_date).isoformat(),
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "matches": matches,
+    }
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
+    return payload
+
+
 def normalize_daily_fixture(item):
     """Normalize one football-data.org match for the Turkish daily calendar."""
     if not isinstance(item, dict):
@@ -151,3 +210,39 @@ def get_daily_fixtures(target_date, force_refresh=False):
                 matches[match["match_id"]] = match
     ordered = sorted(matches.values(), key=lambda match: (match["kickoff_tr"], match["league"], match["match_id"]))
     return save_cache(selected, ordered)
+
+
+def get_weekly_fixtures(start_date=None, force_refresh=False):
+    """Return seven Turkish calendar days with one API call and cached data."""
+    start = validate_date(start_date or today_turkey())
+    today = today_turkey()
+    end = start + timedelta(days=WEEK_DAYS - 1)
+    if not today <= start <= today + timedelta(days=MAX_DAYS_AHEAD):
+        raise ValueError("Date outside supported range")
+    if end > today + timedelta(days=MAX_DAYS_AHEAD):
+        raise ValueError("Date outside supported range")
+    if not force_refresh:
+        cached = load_week_cache(start)
+        if cached is not None:
+            return cached
+    api_key = os.environ.get("FOOTBALL_DATA_API_KEY", "").strip()
+    if not api_key:
+        raise DailyFixtureError("FOOTBALL_DATA_API_KEY is not configured")
+    # Turkey is UTC+3: include the prior UTC day and the last selected UTC day.
+    raw_matches = fetch_football_data_fixture_range(
+        start - timedelta(days=1), end, api_key
+    )
+    selected_days = {
+        (start + timedelta(days=offset)).isoformat()
+        for offset in range(WEEK_DAYS)
+    }
+    matches = {}
+    for raw in raw_matches:
+        match = normalize_daily_fixture(raw)
+        if match and match["date_tr"] in selected_days:
+            matches[match["match_id"]] = match
+    ordered = sorted(
+        matches.values(),
+        key=lambda match: (match["date_tr"], match["kickoff_tr"], match["league"], match["match_id"]),
+    )
+    return save_week_cache(start, ordered)

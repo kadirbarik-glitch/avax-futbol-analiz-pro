@@ -13,7 +13,7 @@ def fixture():
         "provider": "football-data.org", "match_id": "44", "league_id": "PL",
         "league": "Premier League", "country": "England", "home_team_id": "1",
         "home_team": "Home", "away_team_id": "2", "away_team": "Away",
-        "kickoff_tr": "2026-11-11T20:00:00+03:00", "status": "SCHEDULED",
+        "date_tr": "2026-11-10", "kickoff_tr": "2026-11-11T20:00:00+03:00", "status": "SCHEDULED",
     }
 
 
@@ -40,7 +40,7 @@ class BetaAppTests(unittest.TestCase):
         self.assertIn("Basic", response.headers["WWW-Authenticate"])
 
     def test_authenticated_mobile_list_uses_fixture_data(self):
-        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_daily_fixtures", return_value={"matches": [fixture()]}), patch.object(beta, "kickoff_is_past", return_value=False):
+        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", return_value={"matches": [fixture()]}), patch.object(beta, "kickoff_is_past", return_value=False):
             response = self.client.get("/?date=2026-11-10", headers=self.auth())
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Home", response.data)
@@ -51,7 +51,7 @@ class BetaAppTests(unittest.TestCase):
         unsupported = fixture()
         unsupported["league_id"] = "BSA"
         unsupported["league"] = "Brazilian Serie A"
-        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_daily_fixtures", return_value={"matches": [unsupported]}), patch.object(beta, "kickoff_is_past", return_value=False):
+        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", return_value={"matches": [unsupported]}), patch.object(beta, "kickoff_is_past", return_value=False):
             response = self.client.get("/?date=2026-11-10", headers=self.auth())
         self.assertEqual(response.status_code, 200)
         self.assertIn("Analiz desteklenmiyor".encode("utf-8"), response.data)
@@ -63,6 +63,20 @@ class BetaAppTests(unittest.TestCase):
         supported.update({"match_id": "46", "kickoff_tr": "2027-11-11T20:00:00+03:00"})
         groups = beta.match_groups([unsupported, supported])
         self.assertEqual([row["match_id"] for row in groups["upcoming"]], ["46", "45"])
+
+    def test_calendar_has_seven_days_and_marks_real_match_count(self):
+        match = fixture()
+        match["date_tr"] = "2026-11-12"
+        calendar = beta.weekly_calendar(date(2026, 11, 10), [match])
+        self.assertEqual(len(calendar), 7)
+        self.assertEqual(calendar[2]["count"], 1)
+        self.assertEqual(calendar[0]["count"], 0)
+
+    def test_home_rejects_date_outside_seven_day_calendar(self):
+        with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True):
+            response = self.client.get("/?date=2026-11-17", headers=self.auth())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("7 günü gösterir".encode("utf-8"), response.data)
 
     def test_detail_never_invents_prediction_when_bridge_blocks(self):
         blocked = {"prediction": None, "reason": "Match is not upcoming", "warning": "No prediction has been generated."}

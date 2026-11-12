@@ -17,6 +17,7 @@ from v84_daily_app import classify_match, kickoff_is_past
 from v84_daily_fixtures import (
     DailyFixtureError,
     get_daily_fixtures,
+    get_weekly_fixtures,
     today_turkey,
     validate_date,
 )
@@ -84,6 +85,23 @@ def load_day(value):
     return selected, get_daily_fixtures(selected)
 
 
+def weekly_calendar(start_date, matches):
+    """Build seven selectable Turkish dates without inventing empty fixtures."""
+    counts = {}
+    for match in matches:
+        match_date = match.get("date_tr")
+        if match_date:
+            counts[match_date] = counts.get(match_date, 0) + 1
+    return [
+        {
+            "date": (start_date + timedelta(days=offset)).isoformat(),
+            "day": (start_date + timedelta(days=offset)).strftime("%d.%m"),
+            "count": counts.get((start_date + timedelta(days=offset)).isoformat(), 0),
+        }
+        for offset in range(7)
+    ]
+
+
 def match_groups(matches):
     groups = {name: [] for name in ("upcoming", "live", "finished", "postponed", "other")}
     now = datetime.now(timezone.utc)
@@ -149,6 +167,7 @@ HOME_PAGE = """<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta 
 <div class="brand">AVAX FUTBOL ANALİZ PRO · BETA</div><h1 class="title">Günlük maç merkezi</h1><p class="sub">Canlı sağlayıcı verisi · Türkiye saati · Beta erişimi</p>
 <form class="panel filters" method="get"><input type="date" name="date" value="{{ selected }}" min="{{ today }}" max="{{ max_date }}"><button>Maçları getir</button></form>
 <div class="quick"><a href="/?date={{ today }}">Bugün</a><a href="/?date={{ tomorrow }}">Yarın</a></div>
+<section class="panel"><div class="league">7 GÜNLÜK TAKVİM · Türkiye saati</div><div class="quick">{% for day in calendar %}<a class="{% if day.date == selected %}button{% endif %}" href="/?date={{ day.date }}">{{ day.day }} · {{ day.count }} maç</a>{% endfor %}</div><p class="muted">0 maç görünen günlerde sağlayıcıdan doğrulanmış maç yoktur.</p></section>
 {% if error %}<div class="notice error">{{ error }}</div>{% endif %}
 <div class="summary"><div><strong>{{ total }}</strong><span class="label">maç</span></div><div><strong>{{ upcoming|length }}</strong><span class="label">başlamamış</span></div><div><strong>{{ live|length }}</strong><span class="label">canlı</span></div></div>
 {% for heading, rows in [("Başlamamış maçlar",upcoming),("Canlı maçlar",live),("Tamamlanan maçlar",finished),("Ertelenen / diğer",postponed + other)] %}
@@ -166,12 +185,20 @@ DETAIL_PAGE = """<!doctype html><html lang="tr"><head><meta charset="utf-8"><met
 def home():
     today = today_turkey()
     try:
-        selected, result = load_day(request.args.get("date"))
-        groups = match_groups(result["matches"])
+        selected = selected_date_or_today(request.args.get("date"))
+        if selected > today + timedelta(days=6):
+            raise ValueError("Takvim yalnızca bugünden itibaren 7 günü gösterir.")
+        result = get_weekly_fixtures(today)
+        selected_matches = [
+            match for match in result["matches"]
+            if match.get("date_tr") == selected.isoformat()
+        ]
+        groups = match_groups(selected_matches)
+        calendar = weekly_calendar(today, result["matches"])
         error = None
     except (ValueError, DailyFixtureError) as exc:
-        selected, groups, error = today, match_groups([]), str(exc)
-    return render_template_string(HOME_PAGE, selected=selected.isoformat(), today=today.isoformat(), tomorrow=(today + timedelta(days=1)).isoformat(), max_date=(today + timedelta(days=30)).isoformat(), total=sum(map(len, groups.values())), error=error, **groups)
+        selected, groups, calendar, error = today, match_groups([]), weekly_calendar(today, []), str(exc)
+    return render_template_string(HOME_PAGE, selected=selected.isoformat(), today=today.isoformat(), tomorrow=(today + timedelta(days=1)).isoformat(), max_date=(today + timedelta(days=6)).isoformat(), total=sum(map(len, groups.values())), calendar=calendar, error=error, **groups)
 
 
 @app.route("/match/<match_id>")

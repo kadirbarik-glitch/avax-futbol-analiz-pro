@@ -54,6 +54,22 @@ class DailyFixtureTests(unittest.TestCase):
                 with self.assertRaisesRegex(daily.DailyFixtureError, "FOOTBALL_DATA_API_KEY"):
                     daily.get_daily_fixtures(selected)
 
+    def test_weekly_fixtures_use_one_range_request_and_turkish_dates(self):
+        start = date(2026, 11, 10)
+        early = sample_match(201, "2026-11-09T22:00:00Z")
+        late = sample_match(202, "2026-11-16T20:59:00Z")
+        outside = sample_match(203, "2026-11-16T21:00:00Z")
+        with patch.object(daily, "today_turkey", return_value=start), patch.dict("os.environ", {"FOOTBALL_DATA_API_KEY": "test"}), patch.object(daily, "fetch_football_data_fixture_range", return_value=[early, late, outside]) as fetch, patch.object(daily, "save_week_cache", side_effect=lambda value, matches: {"start_date": value.isoformat(), "matches": matches}):
+            result = daily.get_weekly_fixtures(start, force_refresh=True)
+        fetch.assert_called_once_with(date(2026, 11, 9), date(2026, 11, 16), "test")
+        self.assertEqual([item["match_id"] for item in result["matches"]], ["201", "202"])
+
+    def test_week_cache_avoids_range_request(self):
+        start = date(2026, 11, 10)
+        cached = {"start_date": start.isoformat(), "matches": []}
+        with patch.object(daily, "today_turkey", return_value=start), patch.object(daily, "load_week_cache", return_value=cached), patch.object(daily, "fetch_football_data_fixture_range", side_effect=AssertionError("network must not be called")):
+            self.assertEqual(daily.get_weekly_fixtures(start), cached)
+
 
 if __name__ == "__main__":
     unittest.main()
