@@ -39,6 +39,14 @@ class BetaAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertIn("Basic", response.headers["WWW-Authenticate"])
 
+    def test_authentication_response_does_not_echo_configured_credentials(self):
+        username, password = "private-user", "private-password"
+        with patch.dict(os.environ, {"BETA_USERNAME": username, "BETA_PASSWORD": password}, clear=True):
+            response = self.client.get("/", headers={"Authorization": "Basic YmFkOmNyZWRz"})
+        response_text = response.get_data(as_text=True)
+        self.assertNotIn(username, response_text)
+        self.assertNotIn(password, response_text)
+
     def test_authenticated_mobile_list_uses_fixture_data(self):
         weekly = {"matches": [fixture()], "diagnostics": {"provider_http_status": 200, "request_date_from": "2026-11-09", "request_date_to": "2026-11-16", "provider_match_count": 1, "filtered_match_count": 1}}
         with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", return_value=weekly), patch.object(beta, "kickoff_is_past", return_value=False):

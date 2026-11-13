@@ -11,6 +11,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,7 +21,13 @@ CACHE_DIR = Path("data_cache") / "daily_v84"
 CACHE_MINUTES = 30
 MAX_DAYS_AHEAD = 30
 WEEK_DAYS = 7
+WEEKLY_REFRESH_LOCK_WAIT_SECONDS = 5
+WEEKLY_REFRESH_LOCK_STALE_SECONDS = 300
 TR_TIMEZONE = ZoneInfo("Europe/Istanbul")
+# These are both the beta prediction-model competitions and competitions
+# advertised in the provider's free tier.  Keep the list narrow: each entry
+# is a separate API request when the weekly cache is cold.
+SUPPORTED_COMPETITIONS = ("PL", "PD", "SA", "BL1", "FL1", "CL")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -141,8 +148,101 @@ def fetch_football_data_fixture_range(start_date, end_date, api_key):
     return matches
 
 
+def fetch_football_data_competition_fixtures(competition, start_date, end_date, api_key):
+    """Fetch a supported competition range and log only safe diagnostics."""
+    code = str(competition or "").upper()
+    if code not in SUPPORTED_COMPETITIONS:
+        raise ValueError("Unsupported competition")
+    start = validate_date(start_date).isoformat()
+    end = validate_date(end_date).isoformat()
+    if end < start:
+        raise ValueError("End date precedes start date")
+    query = urllib.parse.urlencode({"dateFrom": start, "dateTo": end})
+    request = urllib.request.Request(
+        API_URL + "/competitions/" + code + "/matches?" + query,
+        headers={"X-Auth-Token": api_key, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        LOGGER.warning(
+            "football-data competition request failed competition=%s http_status=%s date_from=%s date_to=%s",
+            code, error.code, start, end,
+        )
+        raise DailyFixtureError("football-data HTTP status: " + str(error.code)) from None
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        LOGGER.warning(
+            "football-data competition request failed competition=%s date_from=%s date_to=%s",
+            code, start, end,
+        )
+        raise DailyFixtureError("football-data request failed") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("matches"), list):
+        raise DailyFixtureError("Invalid football-data fixture response")
+    matches = payload["matches"]
+    LOGGER.info(
+        "football-data competition response competition=%s http_status=200 date_from=%s date_to=%s provider_match_count=%s",
+        code, start, end, len(matches),
+    )
+    return matches
+
+
+def provider_http_status(error):
+    """Expose an HTTP status for diagnostics without retaining response data."""
+    message = str(error)
+    prefix = "football-data HTTP status: "
+    if message.startswith(prefix):
+        return message[len(prefix):]
+    return "request_failed"
+
+
 def week_cache_path(start_date):
     return CACHE_DIR / ("week_" + validate_date(start_date).isoformat() + ".json")
+
+
+def week_cache_lock_path(start_date):
+    return CACHE_DIR / ("week_" + validate_date(start_date).isoformat() + ".lock")
+
+
+def acquire_week_cache_lock(start_date):
+    """Acquire a short-lived cross-process refresh lock, or return ``None``.
+
+    The lock is intentionally file based so workers in the same Render
+    instance can share it.  It never stores credentials or response data.
+    """
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = week_cache_lock_path(start_date)
+    deadline = time.monotonic() + WEEKLY_REFRESH_LOCK_WAIT_SECONDS
+    while True:
+        try:
+            handle = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            token = str(os.getpid()) + ":" + str(time.time_ns())
+            os.write(handle, token.encode("ascii"))
+            return handle, token
+        except FileExistsError:
+            try:
+                age = time.time() - path.stat().st_mtime
+                if age > WEEKLY_REFRESH_LOCK_STALE_SECONDS:
+                    path.unlink()
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.05)
+
+
+def release_week_cache_lock(start_date, lock_handle):
+    handle, token = lock_handle
+    try:
+        os.close(handle)
+    finally:
+        try:
+            path = week_cache_lock_path(start_date)
+            if path.read_text(encoding="ascii") == token:
+                path.unlink()
+        except (FileNotFoundError, OSError, UnicodeError):
+            pass
 
 
 def load_week_cache(start_date):
@@ -228,8 +328,14 @@ def get_daily_fixtures(target_date, force_refresh=False):
     return save_cache(selected, ordered)
 
 
-def get_weekly_fixtures(start_date=None, force_refresh=False):
-    """Return seven Turkish calendar days with one API call and cached data."""
+def _refresh_weekly_fixtures(start_date=None, force_refresh=False):
+    """Return seven Turkish days, merging the supported competition endpoints.
+
+    A cold cache makes one general request plus six competition requests (7
+    total, below the provider free-tier 10 calls/minute cap).  Subsequent page
+    loads use the 30-minute cache.  Individual endpoint failures stay visible
+    in diagnostics and are never represented as an empty competition.
+    """
     start = validate_date(start_date or today_turkey())
     today = today_turkey()
     end = start + timedelta(days=WEEK_DAYS - 1)
@@ -243,6 +349,8 @@ def get_weekly_fixtures(start_date=None, force_refresh=False):
             cached.setdefault("diagnostics", {
                 "source": "cache",
                 "provider_http_status": "cached",
+                "request_date_from": (start - timedelta(days=1)).isoformat(),
+                "request_date_to": end.isoformat(),
                 "provider_match_count": len(cached["matches"]),
                 "filtered_match_count": len(cached["matches"]),
             })
@@ -255,9 +363,8 @@ def get_weekly_fixtures(start_date=None, force_refresh=False):
         )
         raise DailyFixtureError("FOOTBALL_DATA_API_KEY is not configured")
     # Turkey is UTC+3: include the prior UTC day and the last selected UTC day.
-    raw_matches = fetch_football_data_fixture_range(
-        start - timedelta(days=1), end, api_key
-    )
+    request_start = start - timedelta(days=1)
+    raw_matches = fetch_football_data_fixture_range(request_start, end, api_key)
     selected_days = {
         (start + timedelta(days=offset)).isoformat()
         for offset in range(WEEK_DAYS)
@@ -267,6 +374,34 @@ def get_weekly_fixtures(start_date=None, force_refresh=False):
         match = normalize_daily_fixture(raw)
         if match and match["date_tr"] in selected_days:
             matches[match["match_id"]] = match
+    competition_diagnostics = []
+    for code in SUPPORTED_COMPETITIONS:
+        try:
+            competition_raw = fetch_football_data_competition_fixtures(
+                code, request_start, end, api_key
+            )
+        except DailyFixtureError as error:
+            competition_diagnostics.append({
+                "competition": code,
+                "http_status": provider_http_status(error),
+                "provider_match_count": None,
+                "filtered_match_count": None,
+                "status": "error",
+            })
+            continue
+        filtered_count = 0
+        for raw in competition_raw:
+            match = normalize_daily_fixture(raw)
+            if match and match["date_tr"] in selected_days:
+                matches[match["match_id"]] = match
+                filtered_count += 1
+        competition_diagnostics.append({
+            "competition": code,
+            "http_status": 200,
+            "provider_match_count": len(competition_raw),
+            "filtered_match_count": filtered_count,
+            "status": "ok",
+        })
     ordered = sorted(
         matches.values(),
         key=lambda match: (match["date_tr"], match["kickoff_tr"], match["league"], match["match_id"]),
@@ -278,6 +413,11 @@ def get_weekly_fixtures(start_date=None, force_refresh=False):
         "request_date_to": end.isoformat(),
         "provider_match_count": len(raw_matches),
         "filtered_match_count": len(ordered),
+        "competition_requests": competition_diagnostics,
+        "competition_request_count": len(SUPPORTED_COMPETITIONS),
+        "competition_success_count": sum(
+            item["status"] == "ok" for item in competition_diagnostics
+        ),
     }
     LOGGER.info(
         "football-data weekly filtered date_from=%s date_to=%s provider_match_count=%s filtered_match_count=%s",
@@ -285,3 +425,45 @@ def get_weekly_fixtures(start_date=None, force_refresh=False):
         diagnostics["provider_match_count"], diagnostics["filtered_match_count"],
     )
     return save_week_cache(start, ordered, diagnostics)
+
+
+def get_weekly_fixtures(start_date=None, force_refresh=False):
+    """Read cached weekly fixtures or coordinate a single safe refresh.
+
+    A waiting worker reads the newly-written cache.  If the refresh has not
+    finished inside the short lock window it gets an explicit provider error,
+    never a synthetic empty fixture list.
+    """
+    start = validate_date(start_date or today_turkey())
+    today = today_turkey()
+    end = start + timedelta(days=WEEK_DAYS - 1)
+    if not today <= start <= today + timedelta(days=MAX_DAYS_AHEAD):
+        raise ValueError("Date outside supported range")
+    if end > today + timedelta(days=MAX_DAYS_AHEAD):
+        raise ValueError("Date outside supported range")
+    if not force_refresh:
+        cached = load_week_cache(start)
+        if cached is not None:
+            cached.setdefault("diagnostics", {
+                "source": "cache",
+                "provider_http_status": "cached",
+                "request_date_from": (start - timedelta(days=1)).isoformat(),
+                "request_date_to": end.isoformat(),
+                "provider_match_count": len(cached["matches"]),
+                "filtered_match_count": len(cached["matches"]),
+            })
+            return cached
+    lock_handle = acquire_week_cache_lock(start)
+    if lock_handle is None:
+        cached = load_week_cache(start)
+        if cached is not None:
+            return cached
+        raise DailyFixtureError("football-data weekly refresh is already in progress")
+    try:
+        # A concurrent worker may have completed while this worker waited.
+        cached = load_week_cache(start)
+        if cached is not None:
+            return cached
+        return _refresh_weekly_fixtures(start, force_refresh=True)
+    finally:
+        release_week_cache_lock(start, lock_handle)
