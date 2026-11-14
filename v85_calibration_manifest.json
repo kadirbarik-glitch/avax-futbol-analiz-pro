@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "purpose": "offline calibration research only; no live model change",
+  "league": "BL1",
+  "markets": ["over25", "btts"],
+  "protocol": {
+    "train": "2023",
+    "validation": "2024",
+    "exploratory": "2025",
+    "independent_holdout": "2026_or_later_unseen_period",
+    "random_split": false
+  },
+  "methods": {
+    "platt": {"iterations": 800, "learning_rate": 0.05},
+    "isotonic": {"minimum_training_n": 60}
+  },
+  "data_sha256": {
+    "BL1_2023.json": "7806a197ecef7b01f96b98920450f39159abf94e9ae31ae7410021e178140b34",
+    "BL1_2024.json": "80b3695fbaddb7c64280014d29009989b3ecf004be0e6eb227d7f3d758706a8f",
+    "BL1_2025.json": "f1418d4d90b0ee39d74f3039e85df2fc6169e96f32263055cca3bc71ae558332"
+  },
+  "live_model_changed": false
+}
