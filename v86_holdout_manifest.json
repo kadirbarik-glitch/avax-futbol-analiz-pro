@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "purpose": "frozen independent-holdout preparation only",
+  "holdout_year": 2026,
+  "allow_download": false,
+  "allow_model_selection": false,
+  "allow_calibration_fit": false,
+  "accepted_fixture_status": "FINISHED",
+  "selection_fingerprint": "a4d27d0dd158c576fbeb64ee93854663247f562ee30c7a956471ca916e21c66c",
+  "v8_models_sha256": "27c9cdb64e8cdb2518f0df67f97e2acee53dd246431275ba7fef02dd0830a00c",
+  "v85_manifest_sha256": "aedf905f787ce45538bae5a68cb986a585100264fa3dc90e1b24b5da095dec68",
+  "independence_status": "not_proven_until_external_2026_nonuse_audit_and_frozen_data_manifest",
+  "required_checks": ["finished_only", "year_2026_only", "no_future_kickoff", "duplicate_match_id_rejection", "chronological_order", "same_kickoff_batch_isolation"]
+}
