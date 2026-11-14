@@ -16,7 +16,6 @@ from v84_analysis_bridge import prepare_analysis
 from v84_daily_app import classify_match, kickoff_is_past
 from v84_daily_fixtures import (
     DailyFixtureError,
-    get_daily_fixtures,
     get_weekly_fixtures,
     today_turkey,
     validate_date,
@@ -81,9 +80,22 @@ def selected_date_or_today(value):
     return selected
 
 
-def load_day(value):
+def load_calendar_match(value, match_id):
+    """Find a detail fixture in the same weekly merged source as the list."""
     selected = selected_date_or_today(value)
-    return selected, get_daily_fixtures(selected)
+    today = today_turkey()
+    if selected > today + timedelta(days=6):
+        raise ValueError("Takvim yalnızca bugünden itibaren 7 günü gösterir.")
+    result = get_weekly_fixtures(today)
+    match = next(
+        (
+            item for item in result["matches"]
+            if item.get("match_id") == str(match_id)
+            and item.get("date_tr") == selected.isoformat()
+        ),
+        None,
+    )
+    return selected, match
 
 
 def weekly_calendar(start_date, matches):
@@ -241,10 +253,9 @@ def home():
 @require_beta_auth
 def match_detail(match_id):
     try:
-        selected, result = load_day(request.args.get("date"))
+        selected, match = load_calendar_match(request.args.get("date"), match_id)
     except (ValueError, DailyFixtureError) as exc:
         return render_template_string(DETAIL_PAGE, selected=today_turkey().isoformat(), match={}, analysis={"prediction": None, "reason": str(exc), "warning": "Veri servisi kullanılamıyor."}, probabilities=[], quality_level="VERİ YOK", quality_message=str(exc)), 400
-    match = next((item for item in result["matches"] if item.get("match_id") == str(match_id)), None)
     if match is None:
         abort(404)
     analysis = prepare_analysis(match)

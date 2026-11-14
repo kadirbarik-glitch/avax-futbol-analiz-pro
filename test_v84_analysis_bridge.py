@@ -109,6 +109,15 @@ class AnalysisBridgeTests(unittest.TestCase):
         self.assertEqual(result["prediction"], fake_prediction)
         analyze.assert_called_once_with("PL", 10, 20, match["kickoff_tr"])
 
+    def test_all_supported_competitions_can_enter_safe_bridge(self):
+        for competition in ("PL", "PD", "SA", "BL1", "FL1", "CL"):
+            with self.subTest(competition=competition):
+                result = check_analysis_eligibility(
+                    sample_match(provider="football-data.org", league_id=competition), NOW
+                )
+                self.assertTrue(result["eligible"])
+                self.assertTrue(result["analysis_ready"])
+
     def test_unsupported_same_provider_competition_is_blocked(self):
         result = check_analysis_eligibility(
             sample_match(provider="football-data.org", league_id="TR1"), NOW
