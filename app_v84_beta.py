@@ -27,6 +27,7 @@ app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True)
 
 MODEL_COMPETITIONS = frozenset({"PL", "PD", "SA", "BL1", "FL1", "CL"})
 UNSAFE_QUALITY_LEVELS = frozenset({"LOW", "INSUFFICIENT"})
+DIAGNOSTIC_COMPETITIONS = ("PL", "PD", "SA", "BL1", "FL1", "CL")
 
 
 def beta_credentials_configured():
@@ -155,10 +156,38 @@ def quality_warning(analysis):
     return analysis.get("warning") or analysis.get("reason"), ", ".join(levels) or "VERİ YOK"
 
 
+def competition_diagnostic_rows(diagnostics):
+    """Return fixed, non-sensitive competition diagnostics for beta users."""
+    raw_rows = (diagnostics or {}).get("competition_requests") or []
+    reports = {
+        str(item.get("competition", "")).upper(): item
+        for item in raw_rows if isinstance(item, dict)
+    }
+    rows = []
+    for code in DIAGNOSTIC_COMPETITIONS:
+        item = reports.get(code)
+        if not item:
+            rows.append({"competition": code, "http_status": "sorgulanmadı", "provider_count": "—", "filtered_count": "—", "outcome": "Teşhis verisi yok (önbellek veya eski yanıt)."})
+            continue
+        provider_count = item.get("provider_match_count")
+        filtered_count = item.get("filtered_match_count")
+        raw_http_status = str(item.get("http_status", "request_failed"))
+        http_status = raw_http_status if raw_http_status in {"200", "403", "429", "request_failed"} else "bilinmiyor"
+        outcome = "Boş fikstür" if item.get("status") == "ok" and provider_count == 0 else ("Başarılı" if item.get("status") == "ok" else "Sorgu hatası; 0 maç olarak sayılmaz")
+        rows.append({
+            "competition": code,
+            "http_status": http_status,
+            "provider_count": provider_count if isinstance(provider_count, int) and provider_count >= 0 else "—",
+            "filtered_count": filtered_count if isinstance(filtered_count, int) and filtered_count >= 0 else "—",
+            "outcome": outcome,
+        })
+    return rows
+
+
 BASE_STYLE = """
 <style>
 :root { color-scheme: dark; --bg:#050914; --panel:#0c1629; --line:#233654; --ink:#e7f1ff; --muted:#90a8c8; --blue:#18a8ff; --cyan:#7ad7ff; --warn:#ffd36b; --danger:#ff8b98; }
-*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top,#10264a 0,var(--bg) 42rem);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif} main{max-width:720px;margin:auto;padding:18px 14px 40px}.brand{letter-spacing:.08em;color:var(--cyan);font-size:12px;font-weight:800}.title{font-size:28px;line-height:1.1;margin:6px 0}.sub,.muted{color:var(--muted);font-size:14px}.panel,.match{background:linear-gradient(145deg,rgba(18,35,63,.98),rgba(8,17,32,.98));border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0;box-shadow:0 14px 32px rgba(0,0,0,.2)}.filters{display:grid;gap:10px;grid-template-columns:1fr auto}input,button,a.button{font:inherit;border-radius:10px;padding:11px 12px}input{min-width:0;background:#071225;color:var(--ink);border:1px solid var(--line)}button,a.button{background:var(--blue);color:#00101c;border:0;font-weight:800;text-decoration:none;display:inline-block}.quick{display:flex;gap:8px;margin-top:10px}.quick a{color:var(--cyan);font-size:13px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.summary div{background:#071225;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}.summary strong{display:block;color:var(--cyan);font-size:20px}.label{color:var(--muted);font-size:12px}.league{color:var(--cyan);font-size:13px}.teams{font-size:18px;font-weight:750;margin:7px 0}.time{color:var(--muted);font-size:13px}.tag{float:right;border:1px solid var(--line);padding:2px 7px;border-radius:999px;font-size:11px;color:var(--muted)}.notice{border-left:3px solid var(--warn);padding:10px 12px;background:#241d0b;color:#ffe7a8;border-radius:8px;margin:12px 0}.error{border-left-color:var(--danger);background:#2a1118;color:#ffc1c9}.section{margin:26px 0 8px;font-size:17px}.prob{display:grid;grid-template-columns:1fr auto;gap:5px;padding:8px 0;border-bottom:1px solid var(--line)}.prob:last-child{border:0}.prob b{color:var(--cyan)}.back{color:var(--cyan);text-decoration:none;font-weight:700} footer{color:var(--muted);font-size:12px;margin-top:20px}@media(max-width:420px){main{padding:14px 11px}.title{font-size:25px}.filters{grid-template-columns:1fr}.filters button{width:100%}}
+*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top,#10264a 0,var(--bg) 42rem);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif} main{max-width:720px;margin:auto;padding:18px 14px 40px}.brand{letter-spacing:.08em;color:var(--cyan);font-size:12px;font-weight:800}.title{font-size:28px;line-height:1.1;margin:6px 0}.sub,.muted{color:var(--muted);font-size:14px}.panel,.match{background:linear-gradient(145deg,rgba(18,35,63,.98),rgba(8,17,32,.98));border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0;box-shadow:0 14px 32px rgba(0,0,0,.2)}.filters{display:grid;gap:10px;grid-template-columns:1fr auto}input,button,a.button{font:inherit;border-radius:10px;padding:11px 12px}input{min-width:0;background:#071225;color:var(--ink);border:1px solid var(--line)}button,a.button{background:var(--blue);color:#00101c;border:0;font-weight:800;text-decoration:none;display:inline-block}.quick{display:flex;gap:8px;margin-top:10px}.quick a{color:var(--cyan);font-size:13px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.summary div{background:#071225;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}.summary strong{display:block;color:var(--cyan);font-size:20px}.label{color:var(--muted);font-size:12px}.league{color:var(--cyan);font-size:13px}.teams{font-size:18px;font-weight:750;margin:7px 0}.time{color:var(--muted);font-size:13px}.tag{float:right;border:1px solid var(--line);padding:2px 7px;border-radius:999px;font-size:11px;color:var(--muted)}.notice{border-left:3px solid var(--warn);padding:10px 12px;background:#241d0b;color:#ffe7a8;border-radius:8px;margin:12px 0}.error{border-left-color:var(--danger);background:#2a1118;color:#ffc1c9}.section{margin:26px 0 8px;font-size:17px}.prob{display:grid;grid-template-columns:1fr auto;gap:5px;padding:8px 0;border-bottom:1px solid var(--line)}.prob:last-child{border:0}.prob b{color:var(--cyan)}.diagnostic{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}.diagnostic:last-child{border:0}.diagnostic b{color:var(--cyan)}.back{color:var(--cyan);text-decoration:none;font-weight:700} footer{color:var(--muted);font-size:12px;margin-top:20px}@media(max-width:420px){main{padding:14px 11px}.title{font-size:25px}.filters{grid-template-columns:1fr}.filters button{width:100%}}
 </style>
 """
 
@@ -167,7 +196,7 @@ HOME_PAGE = """<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta 
 <div class="brand">AVAX FUTBOL ANALİZ PRO · BETA</div><h1 class="title">Günlük maç merkezi</h1><p class="sub">Canlı sağlayıcı verisi · Türkiye saati · Beta erişimi</p>
 <form class="panel filters" method="get"><input type="date" name="date" value="{{ selected }}" min="{{ today }}" max="{{ max_date }}"><button>Maçları getir</button></form>
 <div class="quick"><a href="/?date={{ today }}">Bugün</a><a href="/?date={{ tomorrow }}">Yarın</a></div>
-{% if error %}<div class="notice error">Takvim yüklenemedi: {{ error }}. Bu durum 0 maç anlamına gelmez.</div>{% else %}<section class="panel"><div class="league">7 GÜNLÜK TAKVİM · Türkiye saati</div><div class="quick">{% for day in calendar %}<a class="{% if day.date == selected %}button{% endif %}" href="/?date={{ day.date }}">{{ day.day }} · {{ day.count }} maç</a>{% endfor %}</div><p class="muted">Sağlayıcı HTTP {{ diagnostics.provider_http_status }} · istek: {{ diagnostics.request_date_from }} / {{ diagnostics.request_date_to }} · sağlayıcı: {{ diagnostics.provider_match_count }} maç · Türkiye günü filtresi: {{ diagnostics.filtered_match_count }} maç.</p><p class="muted">0 maç yalnızca başarılı sağlayıcı yanıtından sonra gösterilir.</p></section>{% endif %}
+{% if error %}<div class="notice error">Takvim yüklenemedi: {{ error }}. Bu durum 0 maç anlamına gelmez.</div>{% else %}<section class="panel"><div class="league">7 GÜNLÜK TAKVİM · Türkiye saati</div><div class="quick">{% for day in calendar %}<a class="{% if day.date == selected %}button{% endif %}" href="/?date={{ day.date }}">{{ day.day }} · {{ day.count }} maç</a>{% endfor %}</div><p class="muted"><b>Genel /v4/matches:</b> HTTP {{ diagnostics.provider_http_status }} · istek: {{ diagnostics.request_date_from }} / {{ diagnostics.request_date_to }} · sağlayıcı: {{ diagnostics.provider_match_count }} maç · Türkiye günü filtresi: {{ diagnostics.filtered_match_count }} maç.</p><p class="muted">0 maç yalnızca başarılı sağlayıcı yanıtından sonra gösterilir.</p></section><section class="panel"><div class="league">AVRUPA YARIŞMASI API TEŞHİSİ</div><p class="muted">Yarışma bazlı sorgular genel sonuçtan ayrıdır. Hata sayıları boş fikstür değildir.</p>{% for row in competition_diagnostics %}<div class="diagnostic"><b>{{ row.competition }}</b><span>HTTP {{ row.http_status }} · sağlayıcı: {{ row.provider_count }} maç · Türkiye filtresi: {{ row.filtered_count }} maç<br><span class="muted">{{ row.outcome }}</span></span></div>{% endfor %}</section>{% endif %}
 <div class="summary"><div><strong>{{ total }}</strong><span class="label">maç</span></div><div><strong>{{ upcoming|length }}</strong><span class="label">başlamamış</span></div><div><strong>{{ live|length }}</strong><span class="label">canlı</span></div></div>
 {% for heading, rows in [("Başlamamış maçlar",upcoming),("Canlı maçlar",live),("Tamamlanan maçlar",finished),("Ertelenen / diğer",postponed + other)] %}
 <h2 class="section">{{ heading }} · {{ rows|length }}</h2>{% for match in rows %}<article class="match"><span class="tag">{{ match.status }}</span><div class="league">{{ match.country }} · {{ match.league }}</div><div class="teams">{{ match.home_team }} – {{ match.away_team }}</div><div class="time">{{ match.kickoff_tr[11:16] }} · Türkiye saati</div><p class="muted">{{ match.analysis_label }}</p>{% if match in upcoming %}<p><a class="button" href="/match/{{ match.match_id }}?date={{ selected }}">Detay ve analiz</a></p>{% endif %}</article>{% else %}<p class="muted">Bu grupta maç yok.</p>{% endfor %}{% endfor %}
@@ -201,10 +230,11 @@ def home():
             "provider_match_count": "bilinmiyor",
             "filtered_match_count": len(result["matches"]),
         }
+        competition_diagnostics = competition_diagnostic_rows(diagnostics)
         error = None
     except (ValueError, DailyFixtureError) as exc:
-        selected, groups, calendar, diagnostics, error = today, match_groups([]), None, None, str(exc)
-    return render_template_string(HOME_PAGE, selected=selected.isoformat(), today=today.isoformat(), tomorrow=(today + timedelta(days=1)).isoformat(), max_date=(today + timedelta(days=6)).isoformat(), total=sum(map(len, groups.values())), calendar=calendar, diagnostics=diagnostics, error=error, **groups)
+        selected, groups, calendar, diagnostics, competition_diagnostics, error = today, match_groups([]), None, None, [], str(exc)
+    return render_template_string(HOME_PAGE, selected=selected.isoformat(), today=today.isoformat(), tomorrow=(today + timedelta(days=1)).isoformat(), max_date=(today + timedelta(days=6)).isoformat(), total=sum(map(len, groups.values())), calendar=calendar, diagnostics=diagnostics, competition_diagnostics=competition_diagnostics, error=error, **groups)
 
 
 @app.route("/match/<match_id>")

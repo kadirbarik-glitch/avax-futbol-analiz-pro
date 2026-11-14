@@ -48,7 +48,12 @@ class BetaAppTests(unittest.TestCase):
         self.assertNotIn(password, response_text)
 
     def test_authenticated_mobile_list_uses_fixture_data(self):
-        weekly = {"matches": [fixture()], "diagnostics": {"provider_http_status": 200, "request_date_from": "2026-11-09", "request_date_to": "2026-11-16", "provider_match_count": 1, "filtered_match_count": 1}}
+        reports = [
+            {"competition": "PL", "http_status": 200, "provider_match_count": 1, "filtered_match_count": 1, "status": "ok"},
+            {"competition": "PD", "http_status": "403", "provider_match_count": None, "filtered_match_count": None, "status": "error"},
+            {"competition": "SA", "http_status": "429", "provider_match_count": None, "filtered_match_count": None, "status": "error"},
+        ]
+        weekly = {"matches": [fixture()], "diagnostics": {"provider_http_status": 200, "request_date_from": "2026-11-09", "request_date_to": "2026-11-16", "provider_match_count": 1, "filtered_match_count": 1, "competition_requests": reports}}
         with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", return_value=weekly), patch.object(beta, "kickoff_is_past", return_value=False):
             response = self.client.get("/?date=2026-11-10", headers=self.auth())
         self.assertEqual(response.status_code, 200)
@@ -56,6 +61,23 @@ class BetaAppTests(unittest.TestCase):
         self.assertIn(b"Detay ve analiz", response.data)
         self.assertIn("Analiz destekleniyor".encode("utf-8"), response.data)
         self.assertIn("sağlayıcı: 1 maç".encode("utf-8"), response.data)
+        self.assertIn(b"Genel /v4/matches", response.data)
+        self.assertIn("AVRUPA YARIŞMASI API TEŞHİSİ".encode("utf-8"), response.data)
+        self.assertIn(b"HTTP 403", response.data)
+        self.assertIn(b"HTTP 429", response.data)
+        self.assertIn("Sorgu hatası; 0 maç olarak sayılmaz".encode("utf-8"), response.data)
+
+    def test_competition_diagnostics_distinguish_empty_from_error(self):
+        rows = beta.competition_diagnostic_rows({"competition_requests": [
+            {"competition": "PL", "http_status": 200, "provider_match_count": 0, "filtered_match_count": 0, "status": "ok"},
+            {"competition": "PD", "http_status": "request_failed", "provider_match_count": None, "filtered_match_count": None, "status": "error"},
+            {"competition": "SA", "http_status": "secret-token", "provider_match_count": None, "filtered_match_count": None, "status": "error"},
+        ]})
+        self.assertEqual(rows[0]["outcome"], "Boş fikstür")
+        self.assertEqual(rows[1]["outcome"], "Sorgu hatası; 0 maç olarak sayılmaz")
+        self.assertEqual(rows[1]["provider_count"], "—")
+        self.assertEqual(rows[2]["http_status"], "bilinmiyor")
+        self.assertEqual(rows[-1]["competition"], "CL")
 
     def test_provider_error_is_not_rendered_as_zero_match_calendar(self):
         with patch.dict(os.environ, {"BETA_USERNAME": "beta", "BETA_PASSWORD": "pass"}, clear=True), patch.object(beta, "get_weekly_fixtures", side_effect=beta.DailyFixtureError("football-data HTTP status: 429")):
